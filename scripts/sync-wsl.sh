@@ -9,8 +9,9 @@ mkdir -p "$DST/tests" "$DST/src"
 rsync -a --exclude node_modules --exclude lib --exclude .git --exclude .superpowers --exclude '*.log' "$SRC/src/" "$DST/src/"
 rsync -a "$SRC/tests/" "$DST/tests/"
 rsync -a "$SRC/docs/" "$DST/docs/"
+rsync -a "$SRC/scripts/" "$DST/scripts/"
 for f in package.json tsconfig.json vitest.config.ts tsdown.config.ts README.md; do cp "$SRC/$f" "$DST/$f"; done
-find "$DST/src" "$DST/tests" "$DST/docs" -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.md' \) -exec sed -i 's/\r$//' {} +
+find "$DST/src" "$DST/tests" "$DST/docs" "$DST/scripts" -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.md' -o -name '*.mjs' -o -name '*.sh' \) -exec sed -i 's/\r$//' {} +
 cd "$DST"
 if [ $# -eq 0 ]; then
   node node_modules/vitest/vitest.mjs run --testTimeout=60000 --hookTimeout=60000

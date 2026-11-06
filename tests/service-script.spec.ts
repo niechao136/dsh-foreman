@@ -208,7 +208,7 @@ it('starts the service in a new window of the profile\'s tmux session when the s
   started(service(pid))
   expect(await run('start', '--url', url, '--timeout', '10')).toMatchObject({ code: 0 })
   const calls = readFileSync(join(root, 'tmux.log'), 'utf8').split('---\n').map(call => call.split('\n'))
-  expect(calls.find(call => call[0] === 'new-window')).toEqual(expect.arrayContaining(['-t', '=dsh-foreman:']))
+  expect(calls.find(call => call[0] === 'new-window')).toEqual(expect.arrayContaining(['-t', '=dsh-superagent:']))
   expect(calls.some(call => call[0] === 'new-session')).toBe(false)
 }, 20_000)
 it('exits 1 when the started service does not answer in time, and leaves its process running', async () => {

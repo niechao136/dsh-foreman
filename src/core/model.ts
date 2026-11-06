@@ -210,6 +210,27 @@ export interface Decision {
 
 export type AssignmentState = 'pending' | 'running' | 'ended'
 /**
+ * Which machine does an Assignment's work: this host (`local`) or a device that dialled in (`remote`).
+ * `directory` is the path **on that machine**, not on the host; a remote one comes from the device's declared roots.
+ */
+export interface AssignmentTarget {
+  deviceId: string
+  kind: 'local' | 'remote'
+  directory: string
+}
+/** What an Assignment with no target means: the host itself, in whatever directory its ticket already carries. */
+export const LOCAL_TARGET: AssignmentTarget = { deviceId: 'local', kind: 'local', directory: '' }
+/**
+ * Reads an Assignment's target.
+ * Assignments written before targets existed have none, and those ran on the host, so they read as `local`.
+ */
+export const targetOf = (assignment: Assignment): AssignmentTarget => assignment.target ?? LOCAL_TARGET
+/**
+ * What a ticket's new Assignment takes from it: the target the ticket chose when it was accepted, or nothing.
+ * `Assignment` is built by `Tickets.newAssignment`, which never sees the accept outcome, so the choice is carried on the Ticket.
+ */
+export const assignmentTargetOf = (ticket: Ticket): Pick<Assignment, 'target'> => ticket.target === undefined ? {} : { target: ticket.target }
+/**
  * What an Assignment reports: work is in progress (`progress`), its worker waits for a Trigger (`waiting`), a result is
  * ready (`ready`), a person must act to unblock or recover it (`blocked` or `failed`), or nothing is left to do (`dropped`).
  */
@@ -230,6 +251,8 @@ export interface Assignment {
    * into a step before, the worker read.
    */
   idleAt?: string
+  /** Which machine does this work; absent on assignments written before targets existed, which ran here. */
+  target?: AssignmentTarget
 }
 
 export type TicketInput =
@@ -286,6 +309,11 @@ export interface Ticket {
   /** Open question for a person; cleared by the executor or when the ticket ends. */
   attention?: Attention
   assignments: Assignment[]
+  /**
+   * Chosen once, when the ticket is accepted, and copied onto every Assignment it starts later.
+   * It lives on the Ticket because `newAssignment` never sees the accept outcome that made the choice.
+   */
+  target?: AssignmentTarget
   inputs: TicketInput[]
   /** Inputs not yet handed to a running assignment. */
   undelivered: string[]

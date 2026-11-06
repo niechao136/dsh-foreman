@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      dsh-foreman-node:
+        specifier: github:niechao136/dsh-foreman-node
+        version: git+ssh://git@github.com/niechao136/dsh-foreman-node.git#687a8e047e72560af71c323249c9bf60d15ca8e2(3af493996ba7487b49d91a5b045870ca)
       proper-lockfile:
         specifier: 4.1.2
         version: 4.1.2
@@ -1195,6 +1198,19 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
+  dsh-foreman-node@git+ssh://git@github.com/niechao136/dsh-foreman-node.git#687a8e047e72560af71c323249c9bf60d15ca8e2:
+    resolution: {commit: 687a8e047e72560af71c323249c9bf60d15ca8e2, repo: git@github.com:niechao136/dsh-foreman-node.git, type: git}
+    version: 0.1.0
+    engines: {node: ^22.19.0 || >=24.0.0}
+    peerDependencies:
+      '@deepseek-ai/cordis': 4.0.5-alpha.1
+      '@deepseek-ai/dsh-agent': ^0.2.1-alpha.2
+      '@deepseek-ai/dsh-api-session-controller': ^0.2.1-alpha.2
+      '@deepseek-ai/dsh-permission-presets': ^0.2.1-alpha.2
+      '@deepseek-ai/dsh-session': ^0.2.1-alpha.2
+      '@deepseek-ai/dsh-tools': ^0.2.1-alpha.2
+      '@deepseek-ai/dsh-workspace': ^0.2.1-alpha.2
+
   dts-resolver@3.0.0:
     resolution: {integrity: sha512-1T1f+z+4tl9XD+m+0HBgWoL/nm0bOIffyWaUuUSBlFg/86IWvfx+wjNaO/ybU0AJzG9/Mi5hBUgGV6zCmWEN7Q==}
     engines: {node: ^22.18.0 || >=24.0.0}
@@ -1515,8 +1531,8 @@ packages:
   resolve-pkg-maps@1.0.0:
     resolution: {integrity: sha512-seS2Tj26TBVOC2NIc2rOe2y2ZO7efxITtLZcGSOnHHNOQ7CkiUBfw0Iw2ck6xkIhPwLhKNLS8BO+hEpngQlqzw==}
 
-  resolve.exports@2.0.3:
-    resolution: {integrity: sha512-OcXjMsGdhL4XnbShKpAcSqPMzQoYkYyhbEaeSko47MjRP9NfEQMhZkXL1DoFlt9LWQn4YttrdnV6X2OiyzBi+A==}
+  resolve.exports@2.0.4:
+    resolution: {integrity: sha512-zepuGL0ulf+nt+XaFrlKeaiTJeyPFPLLY62+ncq1/VTHBdt3HsfXOH60priZ6tnXQozdGcDeIF5JVTanvIcYWQ==}
     engines: {node: '>=10'}
 
   retry@0.12.0:
@@ -1570,6 +1586,10 @@ packages:
 
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
+    engines: {node: '>=0.10.0'}
+
+  source-map-js@1.2.2:
+    resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
     engines: {node: '>=0.10.0'}
 
   stackback@0.0.2:
@@ -2017,7 +2037,7 @@ snapshots:
       ajv: 8.20.0
       js-yaml: 4.3.2
       node-addon-require-builtin: 0.1.9
-      resolve.exports: 2.0.3
+      resolve.exports: 2.0.4
       semver: 7.8.5
 
   '@deepseek-ai/dsh-atomic-write@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)':
@@ -2796,6 +2816,16 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
+  dsh-foreman-node@git+ssh://git@github.com/niechao136/dsh-foreman-node.git#687a8e047e72560af71c323249c9bf60d15ca8e2(3af493996ba7487b49d91a5b045870ca):
+    dependencies:
+      '@deepseek-ai/cordis': 4.0.5-alpha.1(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1)
+      '@deepseek-ai/dsh-agent': 0.2.1-alpha.2(3dc6930769662420cb44e109694f1822)
+      '@deepseek-ai/dsh-api-session-controller': 0.2.1-alpha.2(f0f09f52f33ce9de681672fa09ab049c)
+      '@deepseek-ai/dsh-permission-presets': 0.2.1-alpha.2(f6be8f3940a5b4abbf1092bac012a3f9)
+      '@deepseek-ai/dsh-session': 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))
+      '@deepseek-ai/dsh-tools': 0.2.1-alpha.2(7dae165423b610802c67ae1eb268e109)
+      '@deepseek-ai/dsh-workspace': 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-session-persistence@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-brand@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-session@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)))(@deepseek-ai/dsh-timeout@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)))(@deepseek-ai/dsh-session@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)))(@deepseek-ai/dsh-storage-domain@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-storage@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)))(@deepseek-ai/dsh-storage@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-typert-protocol@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))
+
   dts-resolver@3.0.0: {}
 
   empathic@2.0.1: {}
@@ -3031,7 +3061,7 @@ snapshots:
     dependencies:
       nanoid: 3.3.18
       picocolors: 1.1.1
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   proper-lockfile@4.1.2:
     dependencies:
@@ -3057,7 +3087,7 @@ snapshots:
 
   resolve-pkg-maps@1.0.0: {}
 
-  resolve.exports@2.0.3: {}
+  resolve.exports@2.0.4: {}
 
   retry@0.12.0: {}
 
@@ -3113,6 +3143,8 @@ snapshots:
   signal-exit@3.0.7: {}
 
   source-map-js@1.2.1: {}
+
+  source-map-js@1.2.2: {}
 
   stackback@0.0.2: {}
 

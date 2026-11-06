@@ -50,3 +50,16 @@ it('carries the labels a chat mapping requires into the selection', () => {
   prepare(ticket, outcome)
   expect(pick.mock.calls[0]![0]).toEqual({ labels: ['intranet'], project: 'shop' })
 })
+
+it('takes the project from the routing table when the trigger records no workspace', () => {
+  const chat = { id: 'tr1', source: 'feishu', text: 'x', threads: [], meta: { chatId: 'oc_shop' } } as unknown as Trigger
+  const prepare = prepareTicketWithForeman({ devices: () => devices, online: () => online, triggerOf: () => chat,
+    workspaceOf: () => '/home/ubuntu/src/shop', local: subject => subject })
+  expect(prepare(ticket, outcome).target).toEqual({ deviceId: 'laptop', kind: 'remote', directory: '/laptop/shop' })
+})
+
+it('prefers the workspace a trigger records over the routing table', () => {
+  const prepare = prepareTicketWithForeman({ devices: () => devices, online: () => online, triggerOf: () => trigger('/w/shop'),
+    workspaceOf: () => '/w/other', local: subject => subject })
+  expect(prepare(ticket, outcome).target?.directory).toBe('/laptop/shop')
+})

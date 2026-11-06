@@ -29,6 +29,13 @@ export interface PrepareInput {
   triggerOf: (ticket: Ticket) => Trigger | undefined
   /** Labels a chat mapping imposes on the devices allowed to take this work. */
   labelsOf?: (trigger: Trigger | undefined) => string[] | undefined
+  /**
+   * The workspace a trigger's work belongs to, when the trigger does not carry one itself.
+   *
+   * The local Source records `meta.workspace`; a Feishu Trigger carries only its chat, whose project comes from the
+   * routing table. Both end up as the project name the device roots are matched against.
+   */
+  workspaceOf?: (trigger: Trigger | undefined) => string | undefined
   /** The selection rule, injected so Task 13 can constrain it without this file knowing about chats. */
   select?: typeof selectDevice
   /** The local prepare, which fills in `execution`; a remote target does not change it (the device has its own directory). */
@@ -47,7 +54,9 @@ export function prepareTicketWithForeman(input: PrepareInput) {
   const select = input.select ?? selectDevice
   return (ticket: Ticket, outcome: Extract<AssessmentOutcome, { kind: 'accept' }>): Ticket => {
     const trigger = input.triggerOf(ticket)
-    const workspace = typeof trigger?.meta['workspace'] === 'string' ? trigger.meta['workspace'] as string : undefined
+    // The trigger's own `meta.workspace` wins; a routing table supplies one for Sources that carry only a chat.
+    const recorded = typeof trigger?.meta['workspace'] === 'string' ? trigger.meta['workspace'] as string : undefined
+    const workspace = recorded ?? input.workspaceOf?.(trigger)
     const project = projectOf(workspace)
     if (project !== '') {
       const request: DeviceRequest = { project }

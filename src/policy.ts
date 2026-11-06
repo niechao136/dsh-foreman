@@ -96,14 +96,46 @@ export const ExecutorConfigSchema = z.object({
   blockedCommands: z.array(CommandNameSchema).default([]),
 }).strict()
 export const SourceInstanceSchema = z.object({ enabled: z.boolean().default(true), config: z.record(z.string(), z.unknown()).default({}) }).strict()
+/**
+ * One Feishu chat mapped to a project.
+ *
+ * A chat *is* a project boundary in the tool a team already uses, so this table answers two questions at once:
+ * whose main Session a message in that chat belongs to, and which devices may take the work. The second half is why
+ * `labels` lives here rather than in the Source's own configuration — a chat restricted to the office network must
+ * never fall back to "some other machine", so the constraint has to reach device selection.
+ */
+export const ChatRouteSchema = z.object({
+  chatId: z.string().trim().min(1).max(200),
+  /** An absolute path on the hub, the same shape every other workspace path has. */
+  workspace: z.string().trim().regex(/^(?:[\\/]|[A-Za-z]:[\\/])/, 'an absolute path'),
+  /** Capabilities a device must all carry to take this chat's work, such as `intranet`. */
+  labels: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
+}).strict()
+export const RoutingSchema = z.object({ chats: z.array(ChatRouteSchema).max(500).default([]) }).strict()
+export type ChatRoute = z.infer<typeof ChatRouteSchema>
 export const SettingsSchema = z.object({
   paused: z.boolean().default(false),
   sources: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/), SourceInstanceSchema).default({}),
   policy: PolicyConfigSchema.default(() => PolicyConfigSchema.parse({})),
   eval: EvalConfigSchema.default(() => EvalConfigSchema.parse({})),
   executor: ExecutorConfigSchema.default(() => ExecutorConfigSchema.parse({})),
+  routing: RoutingSchema.default(() => RoutingSchema.parse({})),
 }).strict()
 export type Settings = z.infer<typeof SettingsSchema>
+
+/**
+ * The project a chat belongs to, or undefined when the table does not mention it.
+ *
+ * First match wins: a duplicated row is a configuration mistake, and picking the first is a stable answer rather
+ * than one that changes with the table's order. An unconfigured chat is not an error — it falls back to the default
+ * main Session, which is how every chat behaved before this table existed.
+ */
+export function workspaceOfChat(settings: Settings, chatId: string | undefined): { workspace: string; labels?: string[] } | undefined {
+  if (chatId === undefined || chatId === '') return undefined
+  const route = settings.routing.chats.find(entry => entry.chatId === chatId)
+  if (route === undefined) return undefined
+  return route.labels === undefined ? { workspace: route.workspace } : { workspace: route.workspace, labels: [...route.labels] }
+}
 export type SettingsBlock = 'policy' | 'eval' | 'executor' | `source:${string}`
 export type SettingsSave = SettingsBlock | 'pause'
 export type SettingsOrigin = 'panel' | 'tool' | 'sync'

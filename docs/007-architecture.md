@@ -314,6 +314,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/foreman/hub.ts` | `Hub` and `Channel`: connection state per device, the token handshake, frame dedupe, revocation on the next frame, and `memoryChannel` for tests; no `ws`, no ledger writes |
 | `src/foreman/ws.ts` | The only file that imports `ws`: a loopback `WebSocketServer` whose sockets become `Channel`s, refusing a non-loopback host because TLS is terminated in a tunnel |
 | `src/foreman/reports.ts` | `applyReport`, `onDisconnect`, `onTimeout` and `alignHello`: a report passes through or is dropped late, a disconnect only marks a time, a timeout reports `blocked`, and a reconnect is reconciled without ever reassigning |
+| `src/foreman/routing.ts` | `routeIndexOf` and `chatRouteOf`: the chat → project table as a map keyed by settings revision, so `masterOf` can stay synchronous |
 | `src/foreman/render.ts` | `renderForDevice`: the task text a device receives, finished on the hub so it carries no resource pointer and no hub path, with the attachments as bytes |
 | `src/app/views/devices.ts` | `devicesView`: the panel's device list — online, revoked, load, last seen, and project names but never a device's own path |
 | `src/client/devices.tsx` | The Devices settings group: the device list, revoking one, and rotating a token, which is shown once |
@@ -438,6 +439,8 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/foreman-reports.spec.ts` | Reports passed through, dropped late or as `dropped`, a disconnect that touches no Engine state, a timeout that reports `blocked`, and hello alignment |
 | `tests/foreman-render.spec.ts` | The task text a device reads: the request's own words, attachments as bytes under the frame budget, and never a hub path or an unreadable attachment id |
 | `tests/migration-script.spec.ts` | `scripts/migrate.mjs`: the WAL checkpoint that makes a plain file copy complete, the directories a move must carry, and a verify that names what is missing |
+| `tests/foreman-chat-routing.spec.ts` | The chat → workspace setting: lookup, the empty default, first-row-wins, and the refusals of a relative path or a missing chat id |
+| `tests/foreman-routing.spec.ts` | The chat index: building it, rebuilding on a settings revision, and answering undefined for an unconfigured chat |
 | `tests/stage.spec.ts` | The Ticket stages, row by row |
 | `tests/policy.spec.ts` | Source scope, the gate, the admission table, Mandate revalidation, the Policy version, settings migrations and assessment outcomes |
 | `tests/registry.spec.ts` | `SourceRegistry`: instances, validation, Policy parts, Channels and Thread context |

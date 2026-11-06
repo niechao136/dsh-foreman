@@ -43,6 +43,7 @@ import { ForemanExecutor } from '../foreman/executor.ts'
 import { Hub } from '../foreman/hub.ts'
 import { serve, type Served } from '../foreman/ws.ts'
 import { prepareTicketWithForeman } from '../foreman/prepare.ts'
+import { routeIndexOf, chatRouteOf, type ChatIndex } from '../foreman/routing.ts'
 import { alignHello, onTimeout, applyReport, type AssignmentWhere } from '../foreman/reports.ts'
 import type { Frame, ReportFrame } from '../foreman/protocol.ts'
 import { attachmentPath } from '../sources/dsh.ts'
@@ -191,6 +192,16 @@ export class Runtime extends Service implements SourceHost {
       // The selection seam: a device is chosen while the ticket is accepted, then the local prepare fills `execution`.
       const prepareTicket = prepareTicketWithForeman({ devices: () => this.devices.list(), online: () => this.hub?.snapshot() ?? [],
         triggerOf: ticket => store.triggers.get(ticket.origin.triggerId),
+        // A chat's labels constrain which devices may take its work: an office-only project never falls back to a
+        // laptop that happens to be online. A chat without labels imposes none.
+        labelsOf: trigger => {
+          const chatId = trigger?.source === 'feishu' && typeof trigger.meta['chatId'] === 'string' ? trigger.meta['chatId'] : undefined
+          return chatRouteOf(this.chatRoutes, chatId)?.labels
+        },
+        workspaceOf: trigger => {
+          const chatId = trigger?.source === 'feishu' && typeof trigger.meta['chatId'] === 'string' ? trigger.meta['chatId'] : undefined
+          return chatRouteOf(this.chatRoutes, chatId)?.workspace
+        },
         local: (ticket, outcome) => executor.prepare(ticket, outcome) })
       // Frames that carry facts about work become Engine calls here, the hub itself writing nothing.
       const policy = () => settingsPolicy(store.settings(), sources)
@@ -272,12 +283,75 @@ export class Runtime extends Service implements SourceHost {
 
   /** 这条会话是不是某个工作区的主子。 */
   /**
-   * The main Session a Trigger's conversation belongs to. The local Source's Thread is the Session that spoke, so a
-   * request made in any workspace's main Session reports back there; other Sources have no such Session and keep the default.
+   * The main Session a Trigger's conversation belongs to.
+   *
+   * Three cases, in order of how much is known:
+   * - The local Source's Thread *is* the Session that spoke, so a request made in any workspace's main Session reports
+   *   back there.
+   * - A Feishu chat mapped in the routing table belongs to that chat's project, so its work reports to that project's
+   *   main Session.
+   * - Everything else keeps the default main Session, which is how every chat behaved before the table existed.
+   *
+   * Synchronous on purpose: the Engine calls this inside its emit path, so it reads a cached chat index rather than
+   * awaiting `masterFor`. A chat whose workspace has no main Session yet gets the default one; `masterFor` creates it
+   * the first time someone opens that workspace, and the next message lands there.
    */
   private masterOf(trigger: Trigger | undefined): string {
     const thread = trigger?.source === 'dsh' ? trigger.threads[0] : undefined
-    return thread !== undefined ? String(thread.id) : this.masterId
+    if (thread !== undefined) return String(thread.id)
+    const chatId = trigger?.source === 'feishu' && typeof trigger.meta['chatId'] === 'string' ? trigger.meta['chatId'] : undefined
+    if (chatId !== undefined) {
+      const route = chatRouteOf(this.chatRoutes, chatId)
+      const masterId = route === undefined ? undefined : this.masterIdForPath(route.workspace)
+      if (masterId !== undefined) return masterId
+    }
+    return this.masterId
+  }
+
+  /**
+   * The cached chat index, rebuilt whenever the settings revision moved.
+   *
+   * "Rebuilt on save" is what answers the open question the handoff listed: a mapping change applies to messages
+   * that arrive after it. A message already routed keeps the workspace it went to, because its Ticket and its
+   * conversation were decided when it was accepted.
+   */
+  private chatRoutes_: ChatIndex | undefined
+  private get chatRoutes(): ChatIndex {
+    const revision = this.store.get(KV.settings.revision) ?? 0
+    if (this.chatRoutes_ === undefined || this.chatRoutes_.revision !== revision) {
+      this.chatRoutes_ = routeIndexOf(this.store.settings(), revision)
+      // A route to a workspace that has no main Session yet cannot be honoured synchronously; create those Sessions
+      // in the background so the next message in that chat lands in its own project instead of the default one.
+      void this.ensureChatWorkspaces(this.chatRoutes_)
+    }
+    return this.chatRoutes_
+  }
+
+  /**
+   * Gives every chat's workspace a main Session, so `masterOf` can find one synchronously.
+   *
+   * A failure is logged and not retried: the next settings save rebuilds the index and tries again, and until then
+   * that chat's messages keep the default main Session rather than being lost.
+   */
+  private async ensureChatWorkspaces(current: ChatIndex): Promise<void> {
+    for (const route of current.index.values()) {
+      try {
+        // The registry shape varies across DSH versions; `workspaceRecordOf` already degrades to undefined.
+        const workspace = await this.workspaceRecordOf(route.workspace)
+        if (workspace === undefined) continue
+        await this.masterFor(workspace.id)
+      } catch (error) {
+        this.ctx.logger.warn('dsh-foreman could not open a main Session for chat %s in %s: %s', route.chatId, route.workspace, String(error))
+      }
+    }
+  }
+
+  /** The main Session of the workspace at a path, if one has been created; undefined before that. */
+  private masterIdForPath(path: string): string | undefined {
+    for (const [workspaceId, id] of this.masters) {
+      if (this.ctx.workspaceRegistry.get(workspaceId as never)?.path === path) return String(id)
+    }
+    return undefined
   }
   isMaster(sessionId: string): boolean {
     if (String(sessionId) === String(this.masterId)) return true

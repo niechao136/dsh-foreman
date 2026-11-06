@@ -1,6 +1,6 @@
 # 交接文档（HANDOFF）
 
-> 更新时间：2026-11-06 18:20
+> 更新时间：2026-11-06 22:40
 > 下次接手时，**先读这一页**，再读 `docs/superpowers/specs/` 和 `docs/superpowers/plans/`。
 
 ---
@@ -25,26 +25,26 @@
 
 ## 二、当前进度
 
-计划共 **14 个任务**，已完成 **3 个**：
+计划共 **14 个任务**，**全部完成**（1332 项测试通过）：
 
-| 任务 | 状态 | 说明 |
+| 任务 | 状态 | 落点 |
 | --- | --- | --- |
-| Task 1 建仓库 | ✅ | 两个仓库已建、已推、测试全绿（Linux 基线 1238 项） |
+| Task 1 建仓库 | ✅ | 两个仓库已建、已推 |
 | Task 2 协议帧 | ✅ | 定义在 **node 仓**，hub 通过依赖导入 |
-| Task 3 Assignment 加 target | ✅ | `264b4ee`，126 项相关测试通过 |
-| Task 4 设备注册表 | ⬜ **下一个** | 见计划文档 |
-| Task 5 Selector | ⬜ | |
-| Task 6 ForemanExecutor | ⬜ | |
-| Task 7 Hub 连接 | ⬜ | |
-| Task 8 回报/断线 | ⬜ | |
-| Task 9 设备侧插件 | ⬜ | |
-| Task 10 文本渲染 | ⬜ | |
-| Task 11 迁移脚本 | ⬜ | |
-| Task 12 面板设备页 | ⬜ | |
-| Task 13 飞书群路由 | ⬜ | |
-| Task 14 部署 runbook | ⬜ | |
+| Task 3 Assignment 加 target | ✅ | `264b4ee` |
+| Task 4 设备注册表 | ✅ | `9220ca8` `src/foreman/devices.ts` + `KV.foreman.device` |
+| Task 5 Selector | ✅ | `94380bf` `selector.ts` + `prepare.ts` |
+| Task 6 ForemanExecutor | ✅ | `4ab7c6f` `executor.ts` + `render.ts` |
+| Task 7 Hub 连接 | ✅ | `3a093b7` `hub.ts` + `ws.ts`（唯一 import `ws` 的文件） |
+| Task 8 回报/断线 | ✅ | `61694ad` `reports.ts` |
+| Task 9 设备侧插件 | ✅ | node 仓 `04cd4a8`（**不在 hub 仓**，见决策 2） |
+| Task 10 文本渲染 | ✅ | `b779d04` |
+| Task 11 迁移脚本 | ✅ | `7eb981b` `scripts/migrate.mjs` + `docs/migration.md` |
+| Task 12 面板设备页 | ✅ | `9b2b5d9`「设置 › 设备」 |
+| Task 13 飞书群路由 | ✅ | `7962aa1` `routing.chats` |
+| Task 14 部署 runbook | ✅ | `462d5ab` `docs/deploy-loop-instance.md` |
 
-**Git 状态**：两个仓库都已推送，工作区干净（截至 `264b4ee`，需确认已 push）。
+**Git 状态**：hub 仓在 `master` 上领先 origin 10 个 commit，**未 push**；node 仓领先 1 个 commit，**未 push**。
 
 ---
 
@@ -55,27 +55,24 @@
 Windows 上跑会有一堆**环境性失败**（`sleep` 不存在、chmod、tmux、路径反斜杠），
 原仓库也一样，**不是代码问题**。
 
+现在有脚本了，**不要**再手抄 rsync：
+
 ```bash
-# 1. 同步到 WSL（不要在 /mnt/d 上跑，太慢）
-rsync -a --exclude node_modules --exclude lib --exclude .git \
-  /mnt/d/super-agent/dsh-foreman/ ~/src/dsh-foreman/
-
-# 2. 统一成 LF！否则 docs.spec 会因为 CRLF 全线失败
-cd ~/src/dsh-foreman
-find . -path ./node_modules -prune -o -type f \( -name "*.ts" -o -name "*.md" \) -print \
-  | grep -v node_modules | xargs sed -i 's/\r$//'
-
-# 3. 跑（超时必须放大，默认 10s 在 WSL 里会大量误报超时）
-node node_modules/vitest/vitest.mjs run --testTimeout=60000 --hookTimeout=60000
+~/bin/sync-wsl                           # hub 仓：全量跑
+~/bin/sync-wsl tests/foreman-hub.spec.ts  # hub 仓：只跑指定文件
+~/bin/sync-node                           # 设备仓
 ```
 
-**基线**：`1238 passed | 1 flaky`。那个 flaky 是
-`tests/sources.spec.ts > reports an event line too large to buffer`，
-单独跑稳定通过，全量并发时偶发。
+两个脚本的源在仓库里（hub 仓的 `scripts/sync-wsl.sh`），改完要
+`cp scripts/sync-wsl.sh ~/bin/sync-wsl` 一次。它们会把 `src/`、`tests/`、`docs/`、`scripts/`
+同步过去、统一成 LF、再跑 vitest（超时放大到 60s）。
 
-`node_modules` 是从 Windows 拷进 WSL 的（WSL 里 pnpm 直接段错误，别在那里装）。
-需要更新依赖时，在 Windows 用：
-`node D:/Deepseek/resources/runtime/primary-runtime/dependencies/node/bin/node.exe <pnpm.mjs> install`
+WSL 里的 Node 在 `~/.local/opt/node-v22.22.0-linux-x64/bin`；装包用 Windows 那份 pnpm 的绝对路径：
+`node /mnt/f/Deepseek/resources/runtime/primary-runtime/dependencies/pnpm/bin/pnpm.cjs install`。
+
+**基线**：`1332 passed`。`tests/sources.spec.ts > reports an event line too large to buffer`
+是已知的**负载敏感 flaky**：单独跑基本都过，和别的重活并行时偶发（它等的是一个 45 秒窗口）。
+判断方法：单独跑这个文件，若全绿就不是回归。
 
 ### 编码：PowerShell 会毁掉中文
 
@@ -83,6 +80,26 @@ node node_modules/vitest/vitest.mjs run --testTimeout=60000 --hookTimeout=60000
 （`package.json` 就这么坏过一次）。用 .NET：
 `[System.IO.File]::ReadAllText($f, [System.Text.Encoding]::UTF8)`。
 或者干脆在 WSL 里用 Python 改。
+
+### 两个仓库的行尾
+
+hub 仓有 `.gitattributes`（`* text=auto eol=lf`）；**node 仓没有**，工作区里是 CRLF、库里是 LF。
+归一之后再 `git add`，否则 diff 会显示整个文件被改写：
+
+```bash
+for f in $(git ls-files) src/*.ts; do sed -i 's/\r$//' "$f"; done
+```
+
+### 已经修过的坑（别退回去）
+
+- **git 依赖只能走 HTTPS**：本机没有 GitHub SSH key，pnpm 拉 `github:…` 依赖会失败。已设
+  `git config --global url."https://github.com/".insteadOf git@github.com:`。
+- **`checkHeartbeats` 必须查账本，不能查 Hub**：设备**彻底断线**后就不在 `hub.snapshot()` 里了，
+  而那正是唯一需要超时转 `blocked` 的时刻。现在从 `tickets.open()` 取 running assignment，
+  Hub 只提供负载与 lastSeen。
+- **`memoryChannel` 不能用 class 实例**：计划里的 `{ ...a, close }` 展开会把 class 的方法丢掉。
+  现在是普通对象。
+- **`hubPort` 默认 0（Hub 关）**：端口被占不能拖垮整个插件激活，面板要照常可用。
 
 ---
 
@@ -108,32 +125,51 @@ node node_modules/vitest/vitest.mjs run --testTimeout=60000 --hookTimeout=60000
 9. **node 仓提交 `lib/` 产物、不带 `prepare`**。git 依赖会跑 `prepare`，
    pnpm 拒绝白名单外的包（`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`），
    而且 pnpm 11 已不读 package.json 的 `pnpm` 字段。
+10. **Hub 与传输解耦**：`Hub` 只认 `Channel`（`send`/`close`/两个事件注册），
+    `ws` 只出现在 `src/foreman/ws.ts` 一个文件里。测试用 `memoryChannel()` 内存管道。
+11. **设备会话的权限是 `workspace-write`，不是 `danger-full-access`**。
+    主 loop 自己的会话用全权限（人就在前面），设备上没人，弹审批等于卡死；
+    要越界就报 `blocked` 让人决定。
+12. **设备侧插件在 node 仓，不在 hub 仓**。计划文档 Task 9 写的是 `dsh-foreman/src/node/`，
+    那与决策 1、2 冲突，已按决策做在 node 仓。
 
 ---
 
 ## 五、下一个任务怎么开始
 
-**Task 4：设备注册表**。读计划文档对应小节，按里面的测试先写、再实现。
+**14 个任务全部完成。** 接下来不是写新代码，是**真机验收**——计划末尾那份验收清单一条都还没在
+真实设备上跑过：
 
-要点（计划里已写好）：
-- `src/foreman/devices.ts`，`kv.ts` 加 `foreman` 家族
-- 令牌只存 SHA-256，`node:crypto`，不加依赖
-- 不允许出现第三方依赖
+1. 服务器起独立实例（`docs/deploy-loop-instance.md`），笔记本装 `dsh-foreman-node`。
+2. 主 loop 派一单过去：笔记本上出现 `job-*` 会话并跑完，主 loop 收到 `ready`。
+3. **拔网线**：10 分钟内工单不变；超过 `hubIdleMs` 转 `blocked`；插回后 `hello` 对齐，
+   **同一件活没有第二张 assignment**（这是整套设计最核心的一条）。
+4. 两台设备同时在线，两张工单落到不同设备。
+5. 按 `docs/migration.md` 迁一次机。
+6. 飞书两个群 @ 同一个机器人，各自落到对应项目。
 
-完成一个任务就 `git commit`，然后继续下一个。建议每个任务独立 commit，方便回退。
+第 3 条是唯一值得专门盯着跑的：它跨了 Hub、reports、Selector 三个模块。
+
+改代码时仍然：**每个任务独立 commit**，`pnpm typecheck` + 全量测试（WSL）绿了才提交。
 
 ---
 
 ## 六、待解决的悬而未决
 
-1. **`masterOf` 是同步的，`masterFor` 是异步的** —— Task 13 飞书路由会遇到。
-   计划里选了「Runtime 缓存 `workspace path → masterId`，配置变更时刷新」，
-   但**缓存刷新时机没定死**（群映射改了之后，已经在飞的消息怎么办）。
-   做到 Task 13 时可能需要再确认一次。
-2. **`dsh-foreman-node` 作为传递依赖时是否会激活它自己的 patch 行** —— 未验证。
-   验收标准是：装完 hub 后 `dsh --profile loop --dump-config | grep foreman`
-   **只能出现 `dsh-foreman` 一行**。
-3. **迁移脚本还没写**（Task 11），实际迁移前必须做完。
+1. ~~`masterOf` 同步/异步~~ **已解决**（Task 13）：`src/foreman/routing.ts` 按
+   `KV.settings.revision` 缓存 chat → workspace 索引，映射改了对**新到的消息**生效；
+   已在飞的消息保持它当时被路由到的项目。
+   副作用：映射到的工作区若还没有主会话，第一批消息会先落默认主会话（后台正在建那条）。
+2. **`dsh-foreman-node` 作为传递依赖时是否会激活它自己的 patch 行** —— **仍未验证**。
+   验收标准：装完 hub 后 `dsh --profile loop --dump-config | grep foreman`
+   **只能出现 `dsh-foreman` 一行**。这是设计里明确的风险点，装完必须看一眼。
+3. ~~迁移脚本还没写~~ **已写**（Task 11），但**没有在真机上跑过**。第一次真迁机前
+   先用 `--home` 指向一个复制出来的 home 空跑一次 `plan` / `verify`。
+4. **两个仓库都没 push**。hub 仓 10 个 commit、node 仓 1 个都还在本地。
+   node 仓的 `lib/` 已重新构建并提交，但 hub 的 `pnpm-lock.yaml` 还指向 node 仓的**旧 commit**
+   ——协议没变所以不影响，下次 `pnpm update dsh-foreman-node` 会跟上。
+5. **面板的设备页没有真实数据验证过**：`GET /devices` 与吊销/换令牌两个 POST 只有单测。
+6. **`ws` 是唯一的新增依赖**，仍是 `8.22.0`（钉死版本，不是 `^`）。
 
 ---
 

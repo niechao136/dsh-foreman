@@ -24,9 +24,23 @@
 
 ## 状态
 
-**早期开发中。** 设计与实现计划见：
+**早期开发中。** 设备注册表、Selector、ForemanExecutor、Hub、回报规则、设备侧插件、文本渲染、
+迁移脚本、面板设备页、飞书群路由都已落地，测试 1332 项。设计与实现计划见：
 - [设计](docs/superpowers/specs/2026-11-06-dsh-foreman-design.md)
 - [实现计划](docs/superpowers/plans/2026-11-06-dsh-foreman.md)
+- [交接文档](HANDOFF.md)
+
+部署两件事各有一份 runbook：[独立实例](docs/deploy-loop-instance.md) 与 [迁机](docs/migration.md)。
+
+## 一眼看懂它怎么派人
+
+accept 一张工单时，`prepareTicket` 这一步就选定了设备，写进 `Ticket.target`，再由 `newAssignment`
+复制到 `Assignment.target`——**不是** Executor 选的（Executor 没有写库通道）。之后：
+
+- `target.kind === 'local'`：原样交给本机的 `DshExecutor`，行为与没有设备时完全一样。
+- 远端：变成一帧 `assign` 发给那台设备。设备不在线就报 `blocked`，**不伪造 failed，也不悄悄改成本机跑**。
+
+断线**绝不自动重派**：设备可能还在跑，重派就是同一件事执行两遍。超时只转 `blocked`，交给人。
 
 ## 由来与致谢
 

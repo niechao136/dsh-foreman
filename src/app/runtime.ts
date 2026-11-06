@@ -589,10 +589,7 @@ export class Runtime extends Service implements SourceHost {
    * Nothing is ever assigned again on the strength of a reconnect alone.
    */
   private alignDevice(deviceId: string, running: readonly string[]): void {
-    const known = this.store.tickets.open()
-      .filter(ticket => ticket.assignments.some(assignment => assignment.state === 'running' && assignment.target?.deviceId === deviceId))
-      .flatMap(ticket => ticket.assignments.filter(assignment => assignment.state === 'running' && assignment.target?.deviceId === deviceId)
-        .map(assignment => assignment.id))
+    const known = this.runningOn(this.store, deviceId)
     const { stop } = alignHello({ running, known, stop: () => {} })
     for (const assignmentId of stop) {
       const where = assignmentWhere(this.store, assignmentId)
@@ -604,18 +601,40 @@ export class Runtime extends Service implements SourceHost {
     }
   }
 
-  /** Report every assignment a silent device was running as `blocked`, once it has been quiet past `hubIdleMs`. */
+  /**
+   * Report every assignment a silent device was running as `blocked`, once it has been quiet past `hubIdleMs`.
+   *
+   * The list of assignments comes from the **ledger**, not from the hub. A device that dropped its connection is gone
+   * from the hub entirely, so asking the hub what it runs would find nothing the moment the case actually matters —
+   * the machine pulled off the network. The hub supplies only the load and a last-seen stamp the ledger does not have.
+   */
   private checkHeartbeats(): void {
     if (this.hub === undefined) return
     const nowMs = Date.now()
-    for (const device of this.hub.snapshot()) {
-      const since = this.lastSeen.get(device.id) ?? Date.parse(device.lastSeenAt ?? '')
-      if (Number.isNaN(since)) continue
-      const running = this.hub.runningIds(device.id)
-      onTimeout({ since, now: nowMs, limitMs: this.machine.hubIdleMs.get(), deviceId: device.id, running,
+    const connected = new Map(this.hub.snapshot().map(device => [device.id, device]))
+    for (const device of this.devices.list()) {
+      if (device.revokedAt !== undefined) continue
+      const running = this.runningOn(this.store, device.id)
+      // A device with no assignment outstanding has nothing to time out, whichever way it went quiet.
+      if (running.length === 0) continue
+      const session = connected.get(device.id)
+      const since = this.lastSeen.get(device.id) ?? session?.lastSeenAt ?? device.lastSeenAt
+      const sinceMs = typeof since === 'string' ? Date.parse(since) : since
+      if (sinceMs === undefined || Number.isNaN(sinceMs)) {
+        // Never heard from at all: it cannot have been running anything of ours, so there is nothing to time out.
+        continue
+      }
+      onTimeout({ since: sinceMs, now: nowMs, limitMs: this.machine.hubIdleMs.get(), deviceId: device.id, running,
         report: (ticketId, workerReport) => this.engine.report(ticketId, workerReport),
         ticketOf: assignmentId => assignmentWhere(this.store, assignmentId) })
     }
+  }
+
+  /** The assignments the ledger still believes a device is running, on open tickets only. */
+  private runningOn(store: Store, deviceId: string): string[] {
+    return store.tickets.open().flatMap(ticket => ticket.assignments
+      .filter(assignment => assignment.state === 'running' && assignment.target?.deviceId === deviceId)
+      .map(assignment => assignment.id))
   }
   private httpHost(): HttpHost {
     const runtime = this

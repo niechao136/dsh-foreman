@@ -9,6 +9,7 @@
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws'
 import type { AddressInfo } from 'node:net'
 import { Hub, type Channel, type HubInput } from './hub.ts'
+import { FOREMAN_PROTOCOL_VERSION } from './protocol.ts'
 
 /**
  * A socket as the hub's `Channel`.
@@ -71,10 +72,12 @@ export async function serve(input: ServeInput): Promise<Served> {
   const server = new WebSocketServer({ host, port: input.port })
   server.on('connection', socket => {
     const channel = new SocketChannel(socket)
-    firstFrame(socket).then(deviceId => {
-      if (deviceId === undefined) { socket.close(); return }
-      hub.attach(deviceId, channel)
-    }).catch(() => socket.close())
+    firstFrame(socket).then(first => {
+      // A peer that does not open with a hello is told why before the socket closes. Closing silently would leave
+      // the device reconnecting in a loop with nothing in its log, which is the hardest failure to diagnose.
+      if (first.deviceId === undefined) { refuse(socket, first.reason); return }
+      hub.attach(first.deviceId, channel)
+    }).catch(error => refuse(socket, `the connection could not be read: ${String(error)}`))
   })
   await new Promise<void>((resolve, reject) => {
     server.once('listening', () => resolve())
@@ -88,18 +91,35 @@ export async function serve(input: ServeInput): Promise<Served> {
 }
 
 /**
- * The device id the first frame claims, or undefined when the peer does not open with a hello.
+ * The device id the first frame claims, and why it is missing when it is.
+ *
  * Reading it here rather than in the hub keeps `Hub` free of `ws` types without weakening the handshake: the hub
- * still verifies the token before the connection counts as online.
+ * still verifies the token before the connection counts as online. A first frame that is not a `hello` is a peer
+ * speaking something other than this protocol, which the hub would refuse anyway; the reason is carried out so the
+ * socket can be told before it closes.
  */
-function firstFrame(socket: WsSocket): Promise<string | undefined> {
+function firstFrame(socket: WsSocket): Promise<{ deviceId?: string; reason: string }> {
   return new Promise(resolve => {
-    const settle = (value: string | undefined): void => { clearTimeout(timer); socket.off('close', closed); resolve(value) }
-    const timer = setTimeout(() => settle(undefined), 10_000)
-    const closed = (): void => settle(undefined)
-    socket.once('message', data => settle(deviceIdOf(typeof data === 'string' ? data : data.toString())))
+    const settle = (value: { deviceId?: string; reason: string }): void => { clearTimeout(timer); socket.off('close', closed); resolve(value) }
+    const timer = setTimeout(() => settle({ reason: 'the connection did not open with a hello within 10 seconds' }), 10_000)
+    const closed = (): void => settle({ reason: 'the connection closed before it said hello' })
+    socket.once('message', data => {
+      const text = typeof data === 'string' ? data : data.toString()
+      const deviceId = deviceIdOf(text)
+      settle(deviceId === undefined ? { reason: 'the first frame must be a hello naming a device' } : { deviceId, reason: '' })
+    })
     socket.once('close', closed)
   })
+}
+
+/** Tell a socket why this hub is dropping it, then close it. A dead socket simply closes. */
+function refuse(socket: WsSocket, reason: string): void {
+  try {
+    if (socket.readyState === socket.OPEN) {
+      socket.send(JSON.stringify({ v: FOREMAN_PROTOCOL_VERSION, type: 'error', frameId: `error:${Date.now()}`, reason }))
+    }
+  } catch { /* Nothing to tell; the close is what matters. */ }
+  socket.close()
 }
 
 /** The device id a frame claims, if the text parses as a hello; anything else is left to the hub to refuse. */

@@ -436,6 +436,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/foreman-prepare.spec.ts` | The accept seam: the chosen target written before the Assignment exists, the project name read either way along a path, and no target when no device can take the work |
 | `tests/foreman-executor.spec.ts` | Local targets passed through unchanged, remote ones as one `assign` frame, `blocked` when a device is unreachable, and the same assignment never sent twice |
 | `tests/foreman-hub.spec.ts` | The hub: the hello handshake, a refused token, revocation after connecting, a version mismatch, dedupe, and sending to a device that is not connected |
+| `tests/foreman-ws.spec.ts` | The real listener on an ephemeral port: admitting a hello, telling a peer that opens with something else, refusing a non-loopback host, and sending on the socket |
 | `tests/foreman-reports.spec.ts` | Reports passed through, dropped late or as `dropped`, a disconnect that touches no Engine state, a timeout that reports `blocked`, and hello alignment |
 | `tests/foreman-render.spec.ts` | The task text a device reads: the request's own words, attachments as bytes under the frame budget, and never a hub path or an unreadable attachment id |
 | `tests/migration-script.spec.ts` | `scripts/migrate.mjs`: the WAL checkpoint that makes a plain file copy complete, the directories a move must carry, and a verify that names what is missing |

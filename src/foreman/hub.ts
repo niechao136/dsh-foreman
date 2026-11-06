@@ -149,17 +149,6 @@ export class Hub {
     return connection?.runningCount ?? connection?.running.length ?? 0
   }
 
-  /** The assignments a device last said it runs, for aligning it with the ledger after a reconnect. */
-  runningIds(deviceId: string): string[] { return [...this.connections.get(deviceId)?.running ?? []] }
-
-  /** Withdraw the hub's belief that a device runs an assignment, once the ledger finished it. */
-  forgetRunning(deviceId: string, assignmentId: string): void {
-    const connection = this.connections.get(deviceId)
-    if (connection === undefined) return
-    connection.running = connection.running.filter(id => id !== assignmentId)
-    connection.runningCount = connection.running.length
-  }
-
   /**
    * Send a frame to a connected device.
    * @throws When the device is not connected: the caller reports the ticket blocked rather than pretending it went out.

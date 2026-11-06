@@ -1,6 +1,6 @@
 # 交接文档（HANDOFF）
 
-> 更新时间：2026-11-06 22:40
+> 更新时间：2026-11-07 00:12
 > 下次接手时，**先读这一页**，再读 `docs/superpowers/specs/` 和 `docs/superpowers/plans/`。
 
 ---
@@ -44,7 +44,16 @@
 | Task 13 飞书群路由 | ✅ | `7962aa1` `routing.chats` |
 | Task 14 部署 runbook | ✅ | `462d5ab` `docs/deploy-loop-instance.md` |
 
-**Git 状态**：hub 仓在 `master` 上领先 origin 10 个 commit，**未 push**；node 仓领先 1 个 commit，**未 push**。
+**Git 状态**：两个仓库都已推送，与 origin 同步。
+hub 仓 `master` = `0d0661a`，node 仓 `master` = `b79e44d`。
+
+**已过一轮独立代码审查**（审查范围 `264b4ee..462d5ab`），报出 2 个 Critical + 5 个 Important + 若干 Minor，
+已全部处理并各自补了测试。最要紧的是两条：
+
+1. **设备侧从没注册过 `foreman_report`** —— `JobSessions.reportTools` 没有任何调用方，
+   于是设备永远无法回报，主 loop 只能等。现在由 `ensure()` 自己挂工具，并保证重复 assign 只挂一次。
+2. **Hub 重启会把在飞的远端 assignment 再派一遍** —— `DshExecutor.resume()` 没有按 target 过滤，
+   走到 `Tickets.restart` 就新开一张。现在 `resume()` 跳过远端，运行时对它们只报一次 `blocked`（设计 5.8）。
 
 ---
 
@@ -139,6 +148,10 @@ for f in $(git ls-files) src/*.ts; do sed -i 's/\r$//' "$f"; done
 
 **14 个任务全部完成。** 接下来不是写新代码，是**真机验收**——计划末尾那份验收清单一条都还没在
 真实设备上跑过：
+
+**真机验收前，先确认三件只有上机才能验证的事**（自动化测试覆盖不到）：
+设备真的能收到任务并在 `job-*` 会话里跑起来；`foreman_report` 在真模型身上被调用；
+拔网线后 `blocked` 在 `hubIdleMs` 内出现。这三条通过之后，再走下面的清单。
 
 1. 服务器起独立实例（`docs/deploy-loop-instance.md`），笔记本装 `dsh-foreman-node`。
 2. 主 loop 派一单过去：笔记本上出现 `job-*` 会话并跑完，主 loop 收到 `ready`。

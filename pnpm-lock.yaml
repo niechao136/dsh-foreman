@@ -10,7 +10,7 @@ importers:
     dependencies:
       dsh-foreman-node:
         specifier: github:niechao136/dsh-foreman-node
-        version: https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/cf197e68420ebaeebf7ee56b329103dd7d42ed0d(25aec6a6897eea0dc7260da683033580)
+        version: https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/b79e44d351b516c5f39feb9596ffc110a7adfa61(25aec6a6897eea0dc7260da683033580)
       proper-lockfile:
         specifier: 4.1.2
         version: 4.1.2
@@ -1309,8 +1309,8 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
-  dsh-foreman-node@https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/cf197e68420ebaeebf7ee56b329103dd7d42ed0d:
-    resolution: {gitHosted: true, integrity: sha512-MkPopRlwKVYRHsxAh/ic0MEIrbRvW4U3rUthOoBxZQr42TrsCoKCx+TejYusCBczQ2+c9tWIi9PxQujoqv8QgA==, tarball: https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/cf197e68420ebaeebf7ee56b329103dd7d42ed0d}
+  dsh-foreman-node@https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/b79e44d351b516c5f39feb9596ffc110a7adfa61:
+    resolution: {gitHosted: true, integrity: sha512-x7loIJNejD+cL8RPTLAf8kvNWT4gSdimw9wgqrV5/IRHJf9FqOVZ5jGsnwqPotSVqc7/e4Foxm/KFeLVxTtXaQ==, tarball: https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/b79e44d351b516c5f39feb9596ffc110a7adfa61}
     version: 0.1.0
     engines: {node: ^22.19.0 || >=24.0.0}
     peerDependencies:
@@ -2989,7 +2989,7 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  dsh-foreman-node@https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/cf197e68420ebaeebf7ee56b329103dd7d42ed0d(25aec6a6897eea0dc7260da683033580):
+  dsh-foreman-node@https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/b79e44d351b516c5f39feb9596ffc110a7adfa61(25aec6a6897eea0dc7260da683033580):
     dependencies:
       '@deepseek-ai/cordis': 4.0.5-alpha.1(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1)
       '@deepseek-ai/cosmokit': 1.8.5

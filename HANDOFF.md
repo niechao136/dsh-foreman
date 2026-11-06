@@ -1,6 +1,6 @@
 # 交接文档（HANDOFF）
 
-> 更新时间：2026-11-07 00:12
+> 更新时间：2026-11-07 07:22
 > 下次接手时，**先读这一页**，再读 `docs/superpowers/specs/` 和 `docs/superpowers/plans/`。
 
 ---
@@ -56,6 +56,34 @@ hub 仓 `master` = `0d0661a`，node 仓 `master` = `b79e44d`。
    走到 `Tickets.restart` 就新开一张。现在 `resume()` 跳过远端，运行时对它们只报一次 `blocked`（设计 5.8）。
 
 ---
+
+## 二点五、发布了没有
+
+**发布了。`0.1.0`，npm + GitHub Release 都有。**
+
+| 位置 | 地址 |
+| --- | --- |
+| npm（hub） | https://www.npmjs.com/package/dsh-foreman |
+| npm（设备侧） | https://www.npmjs.com/package/dsh-foreman-node |
+| Release（hub） | https://github.com/niechao136/dsh-foreman/releases/tag/v0.1.0 |
+| Release（node） | https://github.com/niechao136/dsh-foreman-node/releases/tag/v0.1.0 |
+
+两个 tag 都叫 `v0.1.0`。hub 的依赖 `dsh-foreman-node` 是**精确版本号 `0.1.0`**（不是 `^`）：
+两个包同步发版，协议不一致时握手就拒绝。
+
+### 发版时踩到的坑（下次照做）
+
+1. **`private: true` 必须删掉**，否则 `npm publish` 直接拒绝。两个包都已经删了。
+2. **npm 的 staged publishing 会先出现一个 `0.0.0-stage` 占位版本**。
+   `npm publish` 打印成功之后，registry 里还要一两分钟才出现真正的版本；
+   用 `curl https://registry.npmjs.org/<pkg>` 轮询 `versions` 字段确认，别以为发失败了。
+3. **pnpm 的 `minimumReleaseAge` 策略会拦住刚发布的版本**。
+   本机 WSL 里踩到过：`ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`。
+   `pnpm install` 时加 `--config.minimumReleaseAge=0` 即可，**不要**为了它往仓库里提交
+   `pnpm-workspace.yaml`（那只在本机成立）。
+4. **这台机器没有 npm 登录态**（`~/.npmrc` 只有镜像 registry）。
+   发布用的是 `npm publish --//registry.npmjs.org/:_authToken=...`，token 不落盘。
+   下次发版前先确认 token 还有效：`curl -H "Authorization: Bearer $TOKEN" https://registry.npmjs.org/-/whoami`。
 
 ## 三、环境怎么跑（重要，踩过坑）
 

@@ -71,12 +71,38 @@ hub 仓 `master` = `0d0661a`，node 仓 `master` = `b79e44d`。
 两个 tag 都叫 `v0.1.0`。hub 的依赖 `dsh-foreman-node` 是**精确版本号 `0.1.0`**（不是 `^`）：
 两个包同步发版，协议不一致时握手就拒绝。
 
+两处 release 都**附了 `.tgz` 资产**，与 npm 上那份**逐字节相同**：
+`dsh-foreman-0.1.0.tgz`（sha1 `2a0d87e7…`，386361 B）、
+`dsh-foreman-node-0.1.0.tgz`（sha1 `8d73ddff…`，23987 B）。
+两个都实测从 GitHub 下载后 sha1 一致、能装上、能 import。
+
+### `0.0.0-stage` 删不掉（不是没做，是做不到）
+
+npm 现在用 **staged publishing**：每次 `npm publish` 都会在 registry 里先落一个
+`0.0.0-stage` 的真实版本。它**不是** `npm stage` 的暂存对象（`npm stage list` 是空的），
+所以 `npm stage reject` 用不上；要删只能 `npm unpublish`。
+
+而 `npm unpublish` 被 npm 的政策挡住了：
+
+```
+E403 Granular access tokens that bypass two-factor authentication may not perform this action
+```
+
+本机只有一枚 automation token（`bypass_2fa: true`）。**绕不过，`--force` 也不行**，
+这是服务端按 token 类型拒绝的。要真删，得用**不绕过 2FA 的 token 或网页登录**在
+https://www.npmjs.com/ 上手动操作（`npm unpublish <pkg>@0.0.0-stage`），npm 只允许发布后
+72 小时内删。
+
+**已做的替代处理**：两个占位版本都标了 deprecation，`npm install <pkg>` 会打出警告并指向 `0.1.0`；
+`latest` 本来就是 `0.1.0`，所以正常安装拿不到占位版本。
+
 ### 发版时踩到的坑（下次照做）
 
 1. **`private: true` 必须删掉**，否则 `npm publish` 直接拒绝。两个包都已经删了。
 2. **npm 的 staged publishing 会先出现一个 `0.0.0-stage` 占位版本**。
    `npm publish` 打印成功之后，registry 里还要一两分钟才出现真正的版本；
    用 `curl https://registry.npmjs.org/<pkg>` 轮询 `versions` 字段确认，别以为发失败了。
+   这个 `0.0.0-stage` **留着删不掉**（见上一节），所以发版前就要接受它会永久留在版本列表里。
 3. **pnpm 的 `minimumReleaseAge` 策略会拦住刚发布的版本**。
    本机 WSL 里踩到过：`ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`。
    `pnpm install` 时加 `--config.minimumReleaseAge=0` 即可，**不要**为了它往仓库里提交

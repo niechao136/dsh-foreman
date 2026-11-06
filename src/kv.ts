@@ -4,6 +4,7 @@
  */
 import type { PromptVersion } from './app/prompts.ts'
 import type { SettingsVersion } from './app/store.ts'
+import type { DeviceRecord } from './foreman/devices.ts'
 import type { SettingsSave } from './policy.ts'
 import type { Retry } from './sources/github.ts'
 
@@ -59,4 +60,9 @@ export const KV = {
   feishu: { chats: record<Record<string, boolean>>('feishu-chats'), history: family<string, [chat: string]>('feishu-history:'),
     topics: family<Record<string, string>, [chat: string]>('feishu-history-threads:'),
     seen: family<string[], [thread: string]>('thread-seen:'), initialized: family<boolean, [thread: string]>('thread-initialized:') },
+  /**
+   * Foreman: one record per device that may take assignments. It lives in the same database as the ledger
+   * so that adding a device needs no configuration change and no restart — accept reads it while choosing.
+   */
+  foreman: { device: family<DeviceRecord, [id: string]>('foreman-device:') },
 }

@@ -307,6 +307,14 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/limits.ts` | The limits of the values a person sets, which the settings schemas check and the panel's fields offer |
 | `src/kv.ts` | `KV`: every family of `kv` records with its key, its value's type and its owner, and the `Key` and `Family` types the Store and `SourceContext.state` take |
 | `src/foreman/protocol.ts` | Re-exports the frame definitions from the `dsh-foreman-node` package, which owns the only copy, so the hub and a device cannot drift |
+| `src/foreman/devices.ts` | `Devices` and `DeviceRecord`: the registry of machines that may take work, its tokens kept only as SHA-256, and its `foreman-device:` family in `KV` |
+| `src/foreman/selector.ts` | `selectDevice`, the pure rule that picks a device at accept: revoked and offline and root-less devices drop out, an explicit name or required label narrows, the least busy wins, a tie goes to the freshest heartbeat |
+| `src/foreman/prepare.ts` | `prepareTicketWithForeman` and `projectOf`: the `prepareTicket` seam that writes the chosen target onto a Ticket before its Assignment exists |
+| `src/foreman/executor.ts` | `ForemanExecutor`, the Executor that passes a local target through to `DshExecutor` and turns a remote one into frames, reporting `blocked` rather than `failed` when a device cannot be reached |
+| `src/foreman/hub.ts` | `Hub` and `Channel`: connection state per device, the token handshake, frame dedupe, revocation on the next frame, and `memoryChannel` for tests; no `ws`, no ledger writes |
+| `src/foreman/ws.ts` | The only file that imports `ws`: a loopback `WebSocketServer` whose sockets become `Channel`s, refusing a non-loopback host because TLS is terminated in a tunnel |
+| `src/foreman/reports.ts` | `applyReport`, `onDisconnect`, `onTimeout` and `alignHello`: a report passes through or is dropped late, a disconnect only marks a time, a timeout reports `blocked`, and a reconnect is reconciled without ever reassigning |
+| `src/foreman/render.ts` | `renderForDevice`: the task text a device receives, finished on the hub so it carries no resource pointer and no hub path, with the attachments as bytes |
 | `src/navigation.ts` | Opens a DeepSeek Harness Session from the panel once the host's catalog lists it |
 | `src/core/model.ts` | The domain types, among them the typed Ticket and `MandateBasis`, with `threadKey`, `ticketOutcome`, `reached`, `followupOwners`, `settled`, `waitsForPerson`, `liveTicket`, `runningAssignment`, `latestAssignment` and `latestReport` |
 | `src/core/ports.ts` | The ports: `Repositories`, `Policy`, `SourceScope`, `Assessor`, `Executor`, `Outbox`, and the domain events |
@@ -420,6 +428,12 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/core-engine.spec.ts` | Domain rules on in-memory repositories: receiving, Eval, fan-out, resume and stop, interrupted Assignments, the pause, Policy changes, reports and outcomes, attaching, replies, failed deliveries and dismissed problems |
 | `tests/foreman-protocol.spec.ts` | That the hub parses a frame the device package encodes, so the two sides speak one definition |
 | `tests/foreman-target.spec.ts` | That an assignment carries the device its ticket chose, that a device path survives unchanged, and that an assignment written before targets existed reads as local |
+| `tests/foreman-devices.spec.ts` | The device registry: a token kept only as a hash, revocation and rotation, roots kept character for character, and last-seen stamps |
+| `tests/foreman-selector.spec.ts` | The selection rule: load ordering, an explicit name, required labels, and the devices that are never picked |
+| `tests/foreman-prepare.spec.ts` | The accept seam: the chosen target written before the Assignment exists, the project name read either way along a path, and no target when no device can take the work |
+| `tests/foreman-executor.spec.ts` | Local targets passed through unchanged, remote ones as one `assign` frame, `blocked` when a device is unreachable, and the same assignment never sent twice |
+| `tests/foreman-hub.spec.ts` | The hub: the hello handshake, a refused token, revocation after connecting, a version mismatch, dedupe, and sending to a device that is not connected |
+| `tests/foreman-reports.spec.ts` | Reports passed through, dropped late or as `dropped`, a disconnect that touches no Engine state, a timeout that reports `blocked`, and hello alignment |
 | `tests/stage.spec.ts` | The Ticket stages, row by row |
 | `tests/policy.spec.ts` | Source scope, the gate, the admission table, Mandate revalidation, the Policy version, settings migrations and assessment outcomes |
 | `tests/registry.spec.ts` | `SourceRegistry`: instances, validation, Policy parts, Channels and Thread context |

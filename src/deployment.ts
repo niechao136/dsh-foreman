@@ -28,6 +28,10 @@ export const Config = s.object({
     .description('The directory the main Session and its Executor Sessions work in. Empty means stateDir. Absolute path.'),
   sessionTitle: s.string().default('dsh-foreman orchestrator')
     .description('Title of the main Session, in the language the operator reads.'),
+  // Not volatile: the listener is bound once at startup, so a new port needs a restart, which the loader performs.
+  hubPort: s.natural().max(65535).default(0).description('Loopback port for device connections; 0 disables the hub, so every ticket runs here.'),
+  hubIdleMs: s.natural().min(30_000).max(86_400_000).default(600_000)
+    .description('How long a device may go unheard before its work is reported blocked, in milliseconds.').volatile(),
 })
 export type DeploymentConfig = ReturnType<typeof Config>
 export interface Machine {
@@ -36,6 +40,10 @@ export interface Machine {
   workspace: string
   /** 主会话的标题，按操作者阅读的语言配置。 */
   sessionTitle: string
+  /** 设备连进来的环回端口；0 表示不开 Hub，所有工单都在本机跑。 */
+  hubPort: number
+  /** 设备多久没心跳就报 blocked（毫秒）。 */
+  hubIdleMs: Volatile<number>
   promptMaxChars: Volatile<number>
   admissionContextMaxPages: Volatile<number>
   admissionContextTimeoutMs: Volatile<number>
@@ -50,8 +58,8 @@ const MOVED: Record<string, string> = {
 export function machineOf(config: DeploymentConfig): Machine {
   const unknown = Object.keys(config).filter(key => !(key in (Config.dict ?? {})))
   if (unknown.length) throw new Error(`dsh-foreman configuration has keys it does not use: ${unknown.map(key => MOVED[key] ? `${key} (now ${MOVED[key]})` : key).join(', ')}; docs/006-deployment.md lists the keys`)
-  const { stateDir, promptMaxChars, admissionContextMaxPages, admissionContextTimeoutMs, workspace, sessionTitle } = config
-  return { stateDir, workspace, sessionTitle, promptMaxChars, admissionContextMaxPages, admissionContextTimeoutMs }
+  const { stateDir, promptMaxChars, admissionContextMaxPages, admissionContextTimeoutMs, workspace, sessionTitle, hubPort, hubIdleMs } = config
+  return { stateDir, workspace, sessionTitle, hubPort, hubIdleMs, promptMaxChars, admissionContextMaxPages, admissionContextTimeoutMs }
 }
 
 /** 一个要监听的仓库，写作 owner/name；面板里就是列表中的一行。 */

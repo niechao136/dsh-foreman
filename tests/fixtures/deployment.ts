@@ -9,6 +9,7 @@ export const reference = <T>(value: T): Volatile<T> & { set(next: T): void } => 
 }
 export const testMachine = (overrides: Partial<Machine> = {}): Machine => ({
   stateDir: '/tmp/dsh-foreman-test', workspace: '', sessionTitle: 'dsh-foreman orchestrator',
+  hubPort: 0, hubIdleMs: reference(600_000),
   promptMaxChars: reference(100000), admissionContextMaxPages: reference(10),
   admissionContextTimeoutMs: reference(15000), ...overrides,
 })

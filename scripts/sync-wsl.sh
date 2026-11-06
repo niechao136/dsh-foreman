@@ -8,8 +8,9 @@ DST=$HOME/src/dsh-foreman
 mkdir -p "$DST/tests" "$DST/src"
 rsync -a --exclude node_modules --exclude lib --exclude .git --exclude .superpowers --exclude '*.log' "$SRC/src/" "$DST/src/"
 rsync -a "$SRC/tests/" "$DST/tests/"
-for f in package.json tsconfig.json vitest.config.ts tsdown.config.ts; do cp "$SRC/$f" "$DST/$f"; done
-find "$DST/src" "$DST/tests" -type f \( -name '*.ts' -o -name '*.tsx' \) -exec sed -i 's/\r$//' {} +
+rsync -a "$SRC/docs/" "$DST/docs/"
+for f in package.json tsconfig.json vitest.config.ts tsdown.config.ts README.md; do cp "$SRC/$f" "$DST/$f"; done
+find "$DST/src" "$DST/tests" "$DST/docs" -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.md' \) -exec sed -i 's/\r$//' {} +
 cd "$DST"
 if [ $# -eq 0 ]; then
   node node_modules/vitest/vitest.mjs run --testTimeout=60000 --hookTimeout=60000

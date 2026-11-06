@@ -10,7 +10,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-subprocess'
-import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { lockSync } from 'proper-lockfile'
 import { Engine, key, reasonText, type EngineForSettings, type ReceiveResult, type Ticket, type Trigger } from '../core/index.ts'
@@ -38,6 +38,23 @@ import { HealthBoard } from '../infra/health.ts'
 import { Outbox } from './outbox.ts'
 import { Passes } from './passes.ts'
 import { Setup } from './setup.ts'
+import { Devices } from '../foreman/devices.ts'
+import { ForemanExecutor } from '../foreman/executor.ts'
+import { Hub } from '../foreman/hub.ts'
+import { serve, type Served } from '../foreman/ws.ts'
+import { prepareTicketWithForeman } from '../foreman/prepare.ts'
+import { alignHello, onTimeout, applyReport, type AssignmentWhere } from '../foreman/reports.ts'
+import type { Frame, ReportFrame } from '../foreman/protocol.ts'
+import { attachmentPath } from '../sources/dsh.ts'
+
+/** The ticket an assignment belongs to, and whether it is still open; undefined when the ledger has no such assignment. */
+function assignmentWhere(store: Store, assignmentId: string): AssignmentWhere | undefined {
+  for (const ticket of store.tickets.list()) {
+    const assignment = ticket.assignments.find(entry => entry.id === assignmentId)
+    if (assignment !== undefined) return { ticketId: ticket.id, open: ticket.ended === undefined }
+  }
+  return undefined
+}
 
 /**
  * 主会话的开场白。
@@ -82,6 +99,17 @@ export class Runtime extends Service implements SourceHost {
   readonly outbox: Outbox
   readonly engine: Engine
   readonly passes: Passes
+  /** The device registry: who may take work, and how to reach each one. */
+  readonly devices: Devices
+  /** Dispatches by target: local work passes through, remote work becomes frames. */
+  readonly foreman!: ForemanExecutor
+  /** Maps a device's report frame onto the Engine; set once the Engine exists. */
+  private applyReport!: (assignmentId: string, frame: ReportFrame) => void
+  /** The device listener, once `initialize` has started it; absent when `hubPort` is 0 or startup is still pending. */
+  hub?: Hub
+  private hubServer?: Served
+  private hubTimer?: ReturnType<typeof setInterval>
+  private readonly lastSeen = new Map<string, number>()
   readonly ready: Promise<void>
   private readonly board = new HealthBoard()
   private readonly runtimeHealth = this.board.claim('runtime', { state: 'starting', detail: '' })
@@ -151,9 +179,22 @@ export class Runtime extends Service implements SourceHost {
         deliver: (id, text, trigger) => sessions.prompt(this.masterOf(trigger), id, text, 'steer'), candidateCard: candidate => candidateCard(links, candidate) })
       const outbox = this.outbox = new Outbox({ store, effects, sources, commands, paused: () => this.paused() })
       const { assessor, executor } = this
+      this.devices = new Devices(store)
+      // Remote work travels as frames. Until the hub is listening (initialize), sending refuses: a ticket whose
+      // target could not be reached turns `blocked` instead of quietly running here.
+      this.foreman = new ForemanExecutor({ local: executor, readAttachment: id => readFileSync(attachmentPath(id)),
+        engine: () => this.engine,
+        transport: { send: (deviceId, frame) => this.hub?.send(deviceId, frame)
+          ?? Promise.reject(new Error(`the foreman hub is not listening, so ${deviceId} cannot be reached`)) },
+        log: text => ctx.logger.warn('dsh-foreman: %s', text) })
+      // The selection seam: a device is chosen while the ticket is accepted, then the local prepare fills `execution`.
+      const prepareTicket = prepareTicketWithForeman({ devices: () => this.devices.list(), online: () => this.hub?.snapshot() ?? [],
+        triggerOf: ticket => store.triggers.get(ticket.origin.triggerId),
+        local: (ticket, outcome) => executor.prepare(ticket, outcome) })
+      // Frames that carry facts about work become Engine calls here, the hub itself writing nothing.
       const policy = () => settingsPolicy(store.settings(), sources)
-      const engine = this.engine = new Engine({ repo: store, scope: sources, policy, assessor, executor,
-        outbox, prepareTicket: (ticket, outcome) => executor.prepare(ticket, outcome), emit: event => {
+      const engine = this.engine = new Engine({ repo: store, scope: sources, policy, assessor, executor: this.foreman,
+        outbox, prepareTicket, emit: event => {
           // A ticket's events belong to the main Session that started it; anything unattributable stays with the default one.
           const ended = event.type === 'ticket.ended' ? store.tickets.get(event.data.ticketId) : undefined
           const home = ended ? this.masterOf(store.triggers.get(ended.origin.triggerId)) : undefined
@@ -173,6 +214,10 @@ export class Runtime extends Service implements SourceHost {
             for (const message of pullEndNotices(ended, request, setup.deployment.repositories[0] ?? '')) outbox.send(message)
           }
         } })
+      // What a device reports becomes an Engine call; the hub itself never writes the ledger. A late or impossible
+      // report is logged and dropped rather than thrown, so a finished ticket cannot be revived by it.
+      this.applyReport = applyReport({ report: (ticketId, workerReport) => { engine.report(ticketId, workerReport) },
+        ticketOf: assignmentId => assignmentWhere(store, assignmentId), log: text => ctx.logger.warn('dsh-foreman: %s', text) })
       // Update the `evals` health entry on every pass if an evaluation failed as unavailable within the last hour.
       const evals = board.claim('evals', { state: 'ready', detail: 'No unavailable Eval in the last hour' })
       const evaluateDue = () => { engine.evaluateDue(); evals.set(evalsHealth(store)) }
@@ -411,10 +456,91 @@ export class Runtime extends Service implements SourceHost {
     for (const id of this.settings.syncable()) await this.settings.sync(id).catch(() => { /* sync() records its failure in health. */ })
     // If stop() was called while awaiting setup, session creation, or policy sync, do not start background loops.
     if (this.closing()) return
+    await this.startHub()
     this.executor.resume()
     this.passes.start()
     this.effects.start()
     this.runtimeHealth.set({ state: 'ready', detail: 'Orchestrator is ready', at: now() })
+  }
+
+  /**
+   * Start listening for devices, unless the hub is switched off (`hubPort` 0) or was already started.
+   *
+   * A port already in use is logged and left off rather than failing activation: the hub is one way to run work, and
+   * a busy port must not make the whole panel unavailable. Every ticket then runs here, which the panel shows as no
+   * device being online.
+   */
+  private async startHub(): Promise<void> {
+    if (this.hubServer !== undefined || this.machine.hubPort === 0) return
+    try {
+      this.hubServer = await serve({ port: this.machine.hubPort, devices: this.devices,
+        onFrame: (deviceId, frame) => this.receiveFrame(deviceId, frame),
+        log: text => this.ctx.logger.warn('dsh-foreman: %s', text) })
+      this.hub = this.hubServer.hub
+      this.hubTimer = setInterval(() => this.checkHeartbeats(), 30_000)
+      this.hubTimer.unref?.()
+      this.ctx.logger.info('dsh-foreman hub listening on 127.0.0.1:%d for devices', this.hubServer.port)
+    } catch (error) {
+      this.ctx.logger.warn('dsh-foreman could not start its device hub on port %d: %s', this.machine.hubPort, String(error))
+    }
+  }
+
+  /**
+   * Turn one device frame into ledger facts.
+   *
+   * Only two frames change anything: `report` becomes an Engine report, and `accepted` marks the assignment started —
+   * the device's own word, which is why the Executor never sets it. Everything else is either a heartbeat the hub
+   * already recorded or a handshake the hub already checked.
+   */
+  private receiveFrame(deviceId: string, frame: Frame): void {
+    this.lastSeen.set(deviceId, Date.now())
+    try {
+      if (frame.type === 'report') this.applyReport(frame.assignmentId, frame)
+      else if (frame.type === 'accepted') {
+        const where = assignmentWhere(this.store, frame.assignmentId)
+        if (where !== undefined && where.open) this.engine.assignmentStarted(where.ticketId, frame.assignmentId)
+      } else if (frame.type === 'hello') this.alignDevice(deviceId, frame.running)
+    } catch (error) {
+      // A frame the ledger refuses must not take the connection down: log it and let the device keep its link.
+      this.ctx.logger.warn('dsh-foreman could not apply a %s frame from %s: %s', frame.type, deviceId, String(error))
+    }
+  }
+
+  /**
+   * Reconcile a reconnecting device against the ledger, in the design's terms (5.8).
+   *
+   * What both sides agree is running needs nothing. What the ledger thinks is running and the device does not is a
+   * fact only the device can supply — it is handed back `blocked` for a person to decide, never restarted here.
+   * Nothing is ever assigned again on the strength of a reconnect alone.
+   */
+  private alignDevice(deviceId: string, running: readonly string[]): void {
+    const known = this.store.tickets.open()
+      .filter(ticket => ticket.assignments.some(assignment => assignment.state === 'running' && assignment.target?.deviceId === deviceId))
+      .flatMap(ticket => ticket.assignments.filter(assignment => assignment.state === 'running' && assignment.target?.deviceId === deviceId)
+        .map(assignment => assignment.id))
+    const { stop } = alignHello({ running, known, stop: () => {} })
+    for (const assignmentId of stop) {
+      const where = assignmentWhere(this.store, assignmentId)
+      if (where === undefined || !where.open) continue
+      // The device says it is not running this: that is the confirmation the design requires before a person may
+      // move the work. Report blocked; a person decides whether to retry, and no second assignment is created here.
+      this.applyReport(assignmentId, { v: 1, type: 'report', frameId: `align:${deviceId}:${assignmentId}`, assignmentId,
+        state: 'blocked', summary: `${deviceId} reconnected but says it is not running this assignment` })
+    }
+  }
+
+  /** Report every assignment a silent device was running as `blocked`, once it has been quiet past `hubIdleMs`. */
+  private checkHeartbeats(): void {
+    if (this.hub === undefined) return
+    const nowMs = Date.now()
+    for (const device of this.hub.snapshot()) {
+      const since = this.lastSeen.get(device.id) ?? Date.parse(device.lastSeenAt ?? '')
+      if (Number.isNaN(since)) continue
+      const running = this.hub.runningIds(device.id)
+      onTimeout({ since, now: nowMs, limitMs: this.machine.hubIdleMs.get(), deviceId: device.id, running,
+        report: (ticketId, workerReport) => this.engine.report(ticketId, workerReport),
+        ticketOf: assignmentId => assignmentWhere(this.store, assignmentId) })
+    }
   }
   private httpHost(): HttpHost {
     const runtime = this
@@ -440,6 +566,9 @@ export class Runtime extends Service implements SourceHost {
       await this.executor.shutdown()
       this.executor.dispose()
       this.sessions.dispose()
+      // The device listener goes before the database: a frame arriving after close would try to write to a closed store.
+      if (this.hubTimer !== undefined) clearInterval(this.hubTimer)
+      await this.hubServer?.close().catch(error => this.ctx.logger.warn('dsh-foreman could not close its device hub: %s', String(error)))
       for (const dispose of this.disposers.reverse()) dispose()
       await this.ctx.sessionPersistence.flush()
     } finally {

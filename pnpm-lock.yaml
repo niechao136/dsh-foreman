@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       dsh-foreman-node:
-        specifier: github:niechao136/dsh-foreman-node
-        version: https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/b79e44d351b516c5f39feb9596ffc110a7adfa61(25aec6a6897eea0dc7260da683033580)
+        specifier: 0.1.0
+        version: 0.1.0(25aec6a6897eea0dc7260da683033580)
       proper-lockfile:
         specifier: 4.1.2
         version: 4.1.2
@@ -1309,9 +1309,8 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
-  dsh-foreman-node@https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/b79e44d351b516c5f39feb9596ffc110a7adfa61:
-    resolution: {gitHosted: true, integrity: sha512-x7loIJNejD+cL8RPTLAf8kvNWT4gSdimw9wgqrV5/IRHJf9FqOVZ5jGsnwqPotSVqc7/e4Foxm/KFeLVxTtXaQ==, tarball: https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/b79e44d351b516c5f39feb9596ffc110a7adfa61}
-    version: 0.1.0
+  dsh-foreman-node@0.1.0:
+    resolution: {integrity: sha512-JCiOH/jI8Lo6zJuv0Ew222U+sesukkO0qkYz2Ewc9p+r4U8Nv4O3X+qfbWBYrQ4PvMgZJduSD8ZrWe7Dorv0ow==}
     engines: {node: ^22.19.0 || >=24.0.0}
     peerDependencies:
       '@deepseek-ai/cordis': 4.0.5-alpha.1
@@ -2019,7 +2018,7 @@ snapshots:
     dependencies:
       '@deepseek-ai/cordis': 4.0.5-alpha.1(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1)
       '@deepseek-ai/cordis-plugin-loader': 1.0.6-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)(node-addon-require-builtin@0.1.9)
-      '@deepseek-ai/cosmokit': 1.8.5
+      '@deepseek-ai/cosmokit': 1.8.6
       js-yaml: 4.3.2
 
   '@deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)(node-addon-require-builtin@0.1.9)':
@@ -2989,7 +2988,7 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  dsh-foreman-node@https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/b79e44d351b516c5f39feb9596ffc110a7adfa61(25aec6a6897eea0dc7260da683033580):
+  dsh-foreman-node@0.1.0(25aec6a6897eea0dc7260da683033580):
     dependencies:
       '@deepseek-ai/cordis': 4.0.5-alpha.1(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1)
       '@deepseek-ai/cosmokit': 1.8.5

@@ -1,8 +1,73 @@
 # Changelog
 
-本仓库是 dsh-foreman（研究方向原型）的本地改造版。下面是相对上游 0.1.0 的改动。
+本仓库的历史从本项目自己的初始提交开始，**不携带上游 git 历史**（见 README 的「由来与致谢」）。
+下面 `0.2.0` 一节是从代码基线 `dsh-superagent-local` 沿袭下来的、那一份代码相对上游
+`dsh-superagent-prototype` 的改动记录，保留它是为了说明基线里已经有什么；**它不是本项目的发布版本**。
 
-## 0.2.0 — 2026-11-01
+本项目自己的版本从 `0.1.0` 开始。
+
+## 0.1.0 — 2026-11-07
+
+首个公开发布。**一个常驻主 loop，把工单派给多台在线设备上各自完整运行的 DSH，账本只有一份。**
+
+### 新增：设备与派单
+
+- **设备注册表**（`src/foreman/devices.ts`）：同一份 SQLite 里的 `foreman-device:` 家族，
+  令牌只存 SHA-256。加设备、换令牌、吊销都不需要重启主 loop。
+  CLI：`scripts/add-device.mjs add | list | rotate | revoke`。
+- **Selector**（`src/foreman/selector.ts`）：纯函数。吊销的、离线的、没有对应项目 root 的设备先出局；
+  显式点名或标签要求再收窄；剩下的按在跑数量最少，平局取最近心跳。
+- **选择落在 accept 上**：`Ticket.target` 在 accept 时确定，`newAssignment` 复制到
+  `Assignment.target`。选设备在 `prepareTicket` 缝上，**不在** Executor 里——Executor 没有写库通道。
+- **ForemanExecutor**（`src/foreman/executor.ts`）：本机目标原样交给 `DshExecutor`；
+  远端目标变成一个 `assign` 帧。设备不可达时报 `blocked`，**不伪造 failed，也不悄悄改成本机执行**。
+- **Foreman Hub**（`src/foreman/hub.ts` + `ws.ts`）：设备主动外连，`ws` 只出现在一个文件里，
+  只监听 `127.0.0.1`（对外由隧道终结 TLS）。握手校验令牌与协议版本；吊销在下一帧就生效。
+- **文本渲染**（`src/foreman/render.ts`）：任务文本在主 loop 侧定稿，**不带任何主 loop 路径**；
+  附件走 base64 字节，按编码后大小卡 256 KiB 上限。
+
+### 新增：断线与恢复
+
+- **断线绝不自动重派**。`assignmentInterrupted` 会走 `Tickets.restart` 立刻重开一张，
+  而设备可能还在跑——那是「同一件事执行两遍」。超时只转 `blocked`，交给人。
+- Hub 重启时，在飞的远端 assignment 一律先转 `blocked`，等设备 `hello` 对齐；
+  `DshExecutor.resume()` 按 target 跳过远端项。
+- 设备重连后先 `hello` 报「我在跑哪些」，Hub 对齐而不是假设。
+
+### 新增：设备侧插件（另一个包）
+
+- [`dsh-foreman-node`](https://www.npmjs.com/package/dsh-foreman-node)：连出去、接单、回报三件事。
+  job 会话是 `job-<assignmentId>`，权限是 **`workspace-write`**（不是主 loop 自己的 `danger-full-access`：
+  笔记本前没人，弹审批等于卡死）。
+- 设备上注册 `foreman_report` 工具（`progress` / `ready` / `blocked` / `failed`）。
+  **`dropped` 不允许**：那是判断，设备没有判断权。
+
+### 新增：面板
+
+- 「设置 › 设备」：在线点、在跑数、最近活动、项目名（**不显示设备自己的路径**）、吊销与换令牌。
+
+### 新增：飞书群即项目
+
+- Policy 的 `routing.chats`：群 → 工作区，同时约束设备选择（内网群只选带 `intranet` 标签的设备）。
+  映射按 settings 修订号缓存，改了对新到的消息生效。
+
+### 新增：迁移
+
+- `scripts/migrate.mjs`：`plan` / `checkpoint` / `pack` / `verify`。
+  必须先 checkpoint——库跑在 WAL 模式，只拷 `.sqlite` 会**静默丢掉**最近的工单。
+- [docs/migration.md](docs/migration.md) 五步 runbook。
+
+### 依赖
+
+- 唯一新增的运行时依赖是 `ws@8`。
+- `@deepseek-ai/*` 全是 `peerDependencies`，由装了本插件的 DSH 实例提供。
+
+---
+
+## 0.2.0 — 2026-11-01（上游基线，非本项目发布）
+
+> 这一节记录的是代码基线 `dsh-superagent-local` 相对上游 `dsh-superagent-prototype` 的改动。
+> 本项目的 `0.1.0` 已包含其中全部内容。
 
 ### 新增：需求来自本机操作者
 

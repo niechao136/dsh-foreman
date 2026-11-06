@@ -441,6 +441,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/migration-script.spec.ts` | `scripts/migrate.mjs`: the WAL checkpoint that makes a plain file copy complete, the directories a move must carry, and a verify that names what is missing |
 | `tests/foreman-chat-routing.spec.ts` | The chat → workspace setting: lookup, the empty default, first-row-wins, and the refusals of a relative path or a missing chat id |
 | `tests/foreman-routing.spec.ts` | The chat index: building it, rebuilding on a settings revision, and answering undefined for an unconfigured chat |
+| `tests/add-device-script.spec.ts` | `scripts/add-device.mjs`: a token whose hash is what is stored, listing without hashes, rotation, revocation, and the refusals |
 | `tests/stage.spec.ts` | The Ticket stages, row by row |
 | `tests/policy.spec.ts` | Source scope, the gate, the admission table, Mandate revalidation, the Policy version, settings migrations and assessment outcomes |
 | `tests/registry.spec.ts` | `SourceRegistry`: instances, validation, Policy parts, Channels and Thread context |

@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>评估 · 决策审计（产品原型）</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --line:#e7e9ee; --line-strong:#d8dbe3;
+    --ink:#1d2129; --ink-2:#4e5561; --ink-3:#848b98; --ink-4:#a9b0bb;
+    --brand:#4f5cf0; --brand-weak:#eef0ff;
+    --ok:#17915a; --ok-weak:#e8f7f0;
+    --warn:#b47600; --warn-weak:#fdf3e2;
+    --bad:#c33636; --bad-weak:#fdecec;
+    --mute:#6b7280; --mute-weak:#f1f2f5;
+    --r:14px; --r-sm:10px;
+    --shadow:0 1px 2px rgba(16,24,40,.04),0 8px 24px rgba(16,24,40,.06);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    font:13px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Helvetica Neue",Arial,sans-serif;
+    color:var(--ink); background:var(--bg); -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1380px;margin:0 auto;padding:22px 28px 34px}
+  /* ---------- 页头 ---------- */
+  .head{display:flex;align-items:flex-start;gap:16px;margin-bottom:18px}
+  .head h1{font-size:22px;line-height:1.3;margin:0;font-weight:600;letter-spacing:.2px}
+  .head p{margin:4px 0 0;color:var(--ink-3);font-size:13px;max-width:720px}
+  .head .actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;
+    font-size:12px;color:var(--ink-2);background:var(--mute-weak);border:1px solid transparent}
+  .chip b{font-weight:600;color:var(--ink)}
+  .chip.live{background:var(--ok-weak);color:var(--ok)}
+  .dot{width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block}
+  .btn{height:30px;padding:0 12px;border-radius:9px;border:1px solid var(--line-strong);background:var(--card);
+    color:var(--ink-2);font:inherit;font-size:12.5px;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+  .btn:hover{background:#fbfbfd}
+  .btn.ghost{border-color:transparent;background:transparent}
+  /* ---------- 指标 ---------- */
+  .metrics{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px}
+  .metric{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;box-shadow:var(--shadow)}
+  .metric .k{font-size:12px;color:var(--ink-3);display:flex;align-items:center;gap:6px}
+  .metric .v{font-size:25px;line-height:1.15;font-weight:600;margin-top:6px;font-variant-numeric:tabular-nums}
+  .metric .v small{font-size:12px;font-weight:400;color:var(--ink-3);margin-left:4px}
+  .metric .sub{font-size:11.5px;color:var(--ink-4);margin-top:2px}
+  .metric.ok .v{color:var(--ok)} .metric.warn .v{color:var(--warn)} .metric.bad .v{color:var(--bad)}
+  /* ---------- 工具条 ---------- */
+  .toolbar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+  .seg{display:inline-flex;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px}
+  .seg button{height:26px;padding:0 11px;border:0;border-radius:8px;background:transparent;color:var(--ink-3);
+    font:inherit;font-size:12.5px;cursor:pointer}
+  .seg button[aria-pressed="true"]{background:var(--brand-weak);color:var(--brand);font-weight:500}
+  .seg button em{font-style:normal;color:var(--ink-4);margin-left:4px;font-variant-numeric:tabular-nums}
+  .search{margin-left:auto;display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;background:var(--card);
+    border:1px solid var(--line);border-radius:10px;color:var(--ink-4);min-width:240px}
+  /* ---------- 两栏 ---------- */
+  .split{display:grid;grid-template-columns:minmax(0,1fr) 376px;gap:14px;align-items:start}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+  .date{position:sticky;top:0;padding:8px 14px;background:linear-gradient(#fff,#fff 70%,rgba(255,255,255,.86));
+    font-size:11.5px;color:var(--ink-4);letter-spacing:.4px;border-bottom:1px solid var(--line);z-index:1}
+  /* ---------- 判定行 ---------- */
+  .row{display:grid;grid-template-columns:52px 78px minmax(0,1fr) 128px 84px 96px 66px;gap:10px;align-items:center;
+    padding:11px 14px;border-bottom:1px solid var(--line);cursor:pointer;position:relative}
+  .row:hover{background:#fafbfe}
+  .row[aria-selected="true"]{background:#f4f6ff}
+  .row[aria-selected="true"]::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--brand)}
+  .time{color:var(--ink-4);font-size:12px;font-variant-numeric:tabular-nums}
+  .badge{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:7px;font-size:11.5px;font-weight:500;white-space:nowrap}
+  .b-accept{background:var(--ok-weak);color:var(--ok)}
+  .b-reopen{background:var(--warn-weak);color:var(--warn)}
+  .b-ignore{background:var(--mute-weak);color:var(--mute)}
+  .b-unavailable{background:var(--bad-weak);color:var(--bad)}
+  .title{min-width:0}
+  .title .t{font-weight:500;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .title .m{display:flex;gap:6px;align-items:center;margin-top:3px;color:var(--ink-4);font-size:11.5px;min-width:0}
+  .tag{display:inline-flex;align-items:center;height:19px;padding:0 6px;border-radius:5px;background:var(--mute-weak);color:var(--ink-3);font-size:11px;white-space:nowrap}
+  .tag.src-dsh{background:#eef4ff;color:#3f6ad8}
+  .tag.src-github{background:#f3eefe;color:#7a49c9}
+  .tag.src-feishu{background:#e8f6ff;color:#1a7fa8}
+  .reason{color:var(--ink-2);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rule{color:var(--ink-3);font-size:11.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dur{color:var(--ink-3);font-size:12px;font-variant-numeric:tabular-nums;text-align:right}
+  .out{text-align:right;color:var(--ink-3);font-size:12px}
+  .out a{color:var(--brand);text-decoration:none}
+  /* ---------- 右侧详情 ---------- */
+  .detail .dtabs{display:flex;gap:4px;padding:10px 12px 0;border-bottom:1px solid var(--line)}
+  .detail .dtabs button{height:30px;padding:0 10px;border:0;background:transparent;color:var(--ink-3);font:inherit;
+    font-size:12.5px;cursor:pointer;position:relative}
+  .detail .dtabs button[aria-selected="true"]{color:var(--ink);font-weight:500}
+  .detail .dtabs button[aria-selected="true"]::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;background:var(--brand);border-radius:2px}
+  .dbody{padding:14px}
+  .dhead{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .dtitle{font-size:15px;font-weight:600;line-height:1.45;margin:0 0 4px}
+  .dmeta{color:var(--ink-4);font-size:11.5px;display:flex;gap:10px;flex-wrap:wrap}
+  .block{margin-top:14px;padding-top:13px;border-top:1px solid var(--line)}
+  .block h4{margin:0 0 8px;font-size:12px;color:var(--ink-3);font-weight:500;letter-spacing:.3px}
+  .quote{margin:0;padding:10px 12px;background:#fafbfe;border:1px solid var(--line);border-left:3px solid var(--brand);
+    border-radius:0 10px 10px 0;color:var(--ink-2);font-size:12.5px}
+  .rulecard{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fcfcfe}
+  .rulecard .rid{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--brand);white-space:nowrap}
+  .rulecard .rname{font-size:12.5px;font-weight:500}
+  .rulecard .rcond{font-size:11.5px;color:var(--ink-4);margin-top:2px}
+  .trail{display:flex;flex-direction:column;gap:6px}
+  .step{display:grid;grid-template-columns:74px 1fr 46px;gap:8px;align-items:center;font-size:12px;color:var(--ink-2)}
+  .step .bar{height:6px;border-radius:99px;background:var(--mute-weak);overflow:hidden}
+  .step .bar i{display:block;height:100%;border-radius:99px;background:var(--brand);opacity:.55}
+  .step .ms{text-align:right;color:var(--ink-4);font-variant-numeric:tabular-nums}
+  .ctx{display:flex;flex-direction:column;gap:8px}
+  .msg{display:flex;gap:8px;font-size:12.5px;color:var(--ink-2)}
+  .msg .who{flex:none;width:52px;color:var(--ink-4);font-size:11.5px;padding-top:2px}
+  .msg .bub{padding:6px 10px;border-radius:10px;background:var(--mute-weak);max-width:100%}
+  .msg.trigger .bub{background:var(--brand-weak);color:#2c36a8}
+  .outcome{padding:10px 12px;border:1px solid var(--line);border-radius:10px}
+  .outcome .oline{display:flex;align-items:center;gap:10px}
+  .outcome .ok{margin-left:auto;color:var(--brand);text-decoration:none;font-size:12px;white-space:nowrap}
+  .outcome .ometa{margin-top:5px;color:var(--ink-4);font-size:11.5px}
+  /* 分布 + 规则命中 */
+  .dist{display:flex;height:10px;border-radius:99px;overflow:hidden;background:var(--mute-weak)}
+  .dist i{display:block;height:100%}
+  .legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:11.5px;color:var(--ink-3)}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .legend em{width:8px;height:8px;border-radius:2px;display:inline-block;font-style:normal}
+  .hits{display:flex;flex-direction:column;gap:9px}
+  .hit{display:grid;grid-template-columns:1fr 44px;gap:10px;align-items:center}
+  .hit .hl{font-size:12px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hit .hb{grid-column:1;height:6px;border-radius:99px;background:var(--mute-weak);overflow:hidden;margin-top:-4px}
+  .hit .hb i{display:block;height:100%;background:#8f9bff;border-radius:99px}
+  .hit .hn{grid-row:1 / span 2;grid-column:2;text-align:right;color:var(--ink-3);font-size:12px;font-variant-numeric:tabular-nums}
+  .note{display:flex;gap:9px;padding:10px 12px;border-radius:10px;background:var(--warn-weak);color:#8a5b00;font-size:12px}
+  .note.bad{background:var(--bad-weak);color:#9c2b2b}
+  .foot{padding:10px 14px;color:var(--ink-4);font-size:11.5px;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center}
+  .foot .sp{margin-left:auto}
+  .kbd{padding:1px 5px;border-radius:5px;border:1px solid var(--line-strong);background:#fff;font-size:11px;color:var(--ink-3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- 页头：标题、政策版本、动作 -->
+  <div class="head">
+    <div>
+      <h1>评估</h1>
+      <p>每次触发进来后，这里记录它是怎么被判定为接受、重开或忽略的：理由、命中的规则、耗时，以及判定之后产出的工单。</p>
+    </div>
+    <div class="actions">
+      <span class="chip live"><span class="dot"></span>政策 v12 生效中</span>
+      <span class="chip">模型 <b>deepseek-v4</b></span>
+      <button class="btn">设置</button>
+    </div>
+  </div>
+
+  <!-- 指标：一眼看清今天判定的质量与成本 -->
+  <div class="metrics">
+    <div class="metric"><div class="k">近 24 小时判定</div><div class="v">128</div><div class="sub">较昨日 +18</div></div>
+    <div class="metric ok"><div class="k">接受</div><div class="v">94<small>73%</small></div><div class="sub">产生了 86 个工单</div></div>
+    <div class="metric"><div class="k">重开</div><div class="v">9<small>7%</small></div><div class="sub">回到已有线程</div></div>
+    <div class="metric"><div class="k">忽略</div><div class="v">18<small>14%</small></div><div class="sub">多数命中名单/静默规则</div></div>
+    <div class="metric warn"><div class="k">未完成</div><div class="v">7<small>5%</small></div><div class="sub">超时 5 · 失败 2</div></div>
+    <div class="metric"><div class="k">判定耗时</div><div class="v">6.4<small>秒 p50</small></div><div class="sub">p95 21.7 秒</div></div>
+  </div>
+
+  <!-- 工具条：按判定筛选 + 时间窗 + 搜索 -->
+  <div class="toolbar">
+    <div class="seg" role="group" aria-label="判定">
+      <button aria-pressed="true">全部<em>128</em></button>
+      <button aria-pressed="false">接受<em>94</em></button>
+      <button aria-pressed="false">重开<em>9</em></button>
+      <button aria-pressed="false">忽略<em>18</em></button>
+      <button aria-pressed="false">未完成<em>7</em></button>
+    </div>
+    <div class="seg" role="group" aria-label="时间窗">
+      <button aria-pressed="true">近 24 小时</button>
+      <button aria-pressed="false">全部</button>
+    </div>
+    <div class="search">⌕ 搜索触发内容、线程或规则</div>
+  </div>
+
+  <div class="split">
+    <!-- 左：判定流水，一行一次判定 -->
+    <section class="panel" aria-label="判定流水">
+      <div class="date">今天 · 11 月 4 日</div>
+
+      <div class="row" aria-selected="true">
+        <span class="time">12:04</span>
+        <span><span class="badge b-accept"><span class="dot"></span>接受</span></span>
+        <div class="title">
+          <div class="t">排查侧栏为什么出现两个搜索入口</div>
+          <div class="m"><span class="tag src-dsh">本地会话</span><span>闲聊 · orchestrator-7b21</span></div>
+        </div>
+        <div class="reason">名单内明确请求，可独立完成</div>
+        <div class="rule">rule.allowlist</div>
+        <div class="dur">4.8s</div>
+        <div class="out"><a href="#">工单 →</a></div>
+      </div>
+
+      <div class="row">
+        <span class="time">11:47</span>
+        <span><span class="badge b-ignore"><span class="dot"></span>忽略</span></span>
+        <div class="title">
+          <div class="t">@机器人 这条先别动，等我把方案想清楚</div>
+          <div class="m"><span class="tag src-feishu">飞书</span><span>团队群 · 王工</span></div>
+        </div>
+        <div class="reason">发送者不在这个来源的名单里</div>
+        <div class="rule">rule.sender-roster</div>
+        <div class="dur">0.3s</div>
+        <div class="out">—</div>
+      </div>
+
+      <div class="row">
+        <span class="time">11:20</span>
+        <span><span class="badge b-accept"><span class="dot"></span>接受</span></span>
+        <div class="title">
+          <div class="t">#12 修复登录页在 Safari 下的白屏</div>
+          <div class="m"><span class="tag src-github">GitHub</span><span>acme/web · issue</span></div>
+        </div>
+        <div class="reason">点名了智能体，且线程还没收口</div>
+        <div class="rule">rule.mention</div>
+        <div class="dur">6.1s</div>
+        <div class="out"><a href="#">工单 →</a></div>
+      </div>
+
+      <div class="row">
+        <span class="time">10:58</span>
+        <span><span class="badge b-reopen"><span class="dot"></span>重开</span></span>
+        <div class="title">
+          <div class="t">登录白屏的复现步骤补充一下</div>
+          <div class="m"><span class="tag src-dsh">本地会话</span><span>接 #289 线程</span></div>
+        </div>
+        <div class="reason">属于未结束的线程，接回原工单</div>
+        <div class="rule">rule.thread-open</div>
+        <div class="dur">5.3s</div>
+        <div class="out"><a href="#">线程 #289</a></div>
+      </div>
+
+      <div class="row">
+        <span class="time">10:31</span>
+        <span><span class="badge b-unavailable"><span class="dot"></span>未完成</span></span>
+        <div class="title">
+          <div class="t">把 Driver 的时钟树整理成文档</div>
+          <div class="m"><span class="tag src-dsh">本地会话</span><span>STM32 · Artifical Car</span></div>
+        </div>
+        <div class="reason">模型在时限内没有给出判定</div>
+        <div class="rule">—</div>
+        <div class="dur">60.0s</div>
+        <div class="out">—</div>
+      </div>
+
+      <div class="row">
+        <span class="time">09:52</span>
+        <span><span class="badge b-ignore"><span class="dot"></span>忽略</span></span>
+        <div class="title">
+          <div class="t">周报提醒：周三前更新 OKR</div>
+          <div class="m"><span class="tag src-feishu">飞书</span><span>机器人消息</span></div>
+        </div>
+        <div class="reason">来源消息由机器人发出，按规则不接单</div>
+        <div class="rule">rule.bot-ignored</div>
+        <div class="dur">0.2s</div>
+        <div class="out">—</div>
+      </div>
+
+      <div class="date">昨天 · 11 月 3 日</div>
+      <div class="row">
+        <span class="time">19:07</span>
+        <span><span class="badge b-accept"><span class="dot"></span>接受</span></span>
+        <div class="title">
+          <div class="t">核对发布流水线为什么卡在签名步骤</div>
+          <div class="m"><span class="tag src-github">GitHub</span><span>acme/web · PR #318</span></div>
+        </div>
+        <div class="reason">声明了要改的目标，且权限足够</div>
+        <div class="rule">rule.explicit-ask</div>
+        <div class="dur">7.4s</div>
+        <div class="out"><a href="#">工单 →</a></div>
+      </div>
+      <div class="row">
+        <span class="time">16:22</span>
+        <span><span class="badge b-accept"><span class="dot"></span>接受</span></span>
+        <div class="title">
+          <div class="t">给仿真脚本补一个串口回环的自检</div>
+          <div class="m"><span class="tag src-dsh">本地会话</span><span>STM32</span></div>
+        </div>
+        <div class="reason">任务边界清楚，可在工作区内完成</div>
+        <div class="rule">rule.scope-local</div>
+        <div class="dur">5.0s</div>
+        <div class="out"><a href="#">工单 →</a></div>
+      </div>
+
+      <div class="foot">共 128 次判定 · 每页 20 条 <span class="sp"></span><button class="btn ghost">加载更多</button></div>
+    </section>
+
+    <!-- 右：选中判定的完整解释 -->
+    <aside class="panel detail" aria-label="判定详情">
+      <div class="dtabs" role="tablist">
+        <button role="tab" aria-selected="true">本次判定</button>
+        <button role="tab" aria-selected="false">规则命中</button>
+        <button role="tab" aria-selected="false">判定分布</button>
+      </div>
+
+      <div class="dbody">
+        <div class="dhead">
+          <span class="badge b-accept"><span class="dot"></span>接受</span>
+          <span class="dmeta">今天 12:04:18 · 本地会话</span>
+        </div>
+        <h3 class="dtitle">排查侧栏为什么出现两个搜索入口</h3>
+        <div class="dmeta"><span>闲聊 · orchestrator-7b21</span><span>thread dsh:b662b3a6</span><span>政策 v12</span></div>
+
+        <div class="block">
+          <h4>判定理由</h4>
+          <p class="quote">名单内明确请求，可独立完成；目标在侧栏渲染层，现有工单都不涉及。接受，并建单。</p>
+        </div>
+
+        <div class="block">
+          <h4>命中的规则</h4>
+          <div class="rulecard">
+            <div class="rid">rule.allowlist</div>
+            <div>
+              <div class="rname">名单里的人明确请求</div>
+              <div class="rcond">来源 = 本地会话 · 发送者 ∈ 操作者名单 · 线程未收口</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="block">
+          <h4>判定轨迹</h4>
+          <div class="trail">
+            <div class="step"><span>入队</span><div class="bar"><i style="width:14%"></i></div><span class="ms">0.2s</span></div>
+            <div class="step"><span>准备上下文</span><div class="bar"><i style="width:26%"></i></div><span class="ms">1.2s</span></div>
+            <div class="step"><span>模型判定</span><div class="bar"><i style="width:100%"></i></div><span class="ms">3.1s</span></div>
+            <div class="step"><span>落库建单</span><div class="bar"><i style="width:12%"></i></div><span class="ms">0.3s</span></div>
+          </div>
+        </div>
+
+        <div class="block">
+          <h4>送进判定的上下文（3 条）</h4>
+          <div class="ctx">
+            <div class="msg"><span class="who">操作者</span><div class="bub">侧栏这一行有点问题，先看下…</div></div>
+            <div class="msg trigger"><span class="who">操作者</span><div class="bub">排查侧栏为什么出现两个搜索入口</div></div>
+            <div class="msg"><span class="who">上下文</span><div class="bub">附近 12 分钟内没有其它触发</div></div>
+          </div>
+        </div>
+
+        <div class="block">
+          <h4>判定之后</h4>
+          <div class="outcome">
+            <div class="oline"><span class="badge b-accept">工单 3773c7f2</span><a class="ok" href="#">打开 Session →</a></div>
+            <div class="ometa">执行中 · worker-3773c7f2 · 37 秒前启动</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="foot">← → 切换判定 <span class="sp"></span><span class="kbd">E</span> 标记需人工复核</div>
+    </aside>
+  </div>
+</div>
+</body>
+</html>

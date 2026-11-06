@@ -1,0 +1,8 @@
+node_modules/
+lib/
+.artifacts/
+.env
+coverage/
+*.tgz
+.DS_Store
+.dsh-project-memory/

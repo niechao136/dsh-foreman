@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "dsh-foreman",
+    "description": "监听本机操作者会话、多个 GitHub 仓库与飞书消息，把获授权的请求转成 Ticket，并在各自工作区的 DSH 会话中执行。"
+  }
+}

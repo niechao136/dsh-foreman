@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "dsh-foreman",
+    "description": "Watch local operator sessions, several GitHub repositories and Feishu messages, turn authorized requests into Tickets, and run each in its own workspace DSH Session."
+  }
+}

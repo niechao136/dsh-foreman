@@ -626,7 +626,8 @@ export class Runtime extends Service implements SourceHost {
       }
       onTimeout({ since: sinceMs, now: nowMs, limitMs: this.machine.hubIdleMs.get(), deviceId: device.id, running,
         report: (ticketId, workerReport) => this.engine.report(ticketId, workerReport),
-        ticketOf: assignmentId => assignmentWhere(this.store, assignmentId) })
+        ticketOf: assignmentId => assignmentWhere(this.store, assignmentId),
+        reportedStateOf: assignmentId => this.reportStateOf(assignmentId) })
     }
   }
 
@@ -635,6 +636,15 @@ export class Runtime extends Service implements SourceHost {
     return store.tickets.open().flatMap(ticket => ticket.assignments
       .filter(assignment => assignment.state === 'running' && assignment.target?.deviceId === deviceId)
       .map(assignment => assignment.id))
+  }
+
+  /** The state an assignment's last report carried, so a repeat of the same state is not filed again. */
+  private reportStateOf(assignmentId: string): string | undefined {
+    for (const ticket of this.store.tickets.open()) {
+      const assignment = ticket.assignments.find(entry => entry.id === assignmentId)
+      if (assignment !== undefined) return assignment.report?.state
+    }
+    return undefined
   }
   private httpHost(): HttpHost {
     const runtime = this

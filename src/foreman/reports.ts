@@ -66,6 +66,8 @@ export interface OnTimeoutInput {
   ticketOf: (assignmentId: string) => AssignmentWhere | undefined
   deviceId: string
   running: readonly string[]
+  /** The report already on an assignment, so a silent device is not reported into the same state twice. */
+  reportedStateOf?: (assignmentId: string) => string | undefined
 }
 
 /**
@@ -74,12 +76,18 @@ export interface OnTimeoutInput {
  * Nothing before the limit. After it, every assignment the device was running on an open ticket is reported
  * `blocked` with a reason naming the device, so the router session can ask. `assignmentInterrupted` is never called
  * here: the device may come back and report, and a restart in the meantime would duplicate the work.
+ *
+ * An assignment already reported `blocked` or `failed` is skipped. The timeout fires on a timer, so without this a
+ * device that stays away for an hour would file the same `blocked` report every 30 seconds, each one rewriting the
+ * ticket and notifying its main Session — a notification storm that says nothing new.
  */
 export function onTimeout(input: OnTimeoutInput): void {
   if (input.now - input.since <= input.limitMs) return
   for (const assignmentId of input.running) {
     const where = input.ticketOf(assignmentId)
     if (where === undefined || !where.open) continue
+    const state = input.reportedStateOf?.(assignmentId)
+    if (state === 'blocked' || state === 'failed') continue
     input.report(where.ticketId, { state: 'blocked', summary: `device offline: ${input.deviceId} has not been heard from for ${Math.round((input.now - input.since) / 60_000)} minutes` })
   }
 }

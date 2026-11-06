@@ -65,6 +65,20 @@ it('skips a running assignment whose ticket already ended when the timeout fires
   expect(report).not.toHaveBeenCalled()
 })
 
+it('does not file the same blocked report again on every timer tick', () => {
+  const report = vi.fn()
+  onTimeout({ since: 0, now: 600_001, limitMs: 600_000, report, ticketOf: () => ({ ticketId: 't1', open: true }), deviceId: 'laptop',
+    running: ['a1'], reportedStateOf: () => 'blocked' })
+  expect(report).not.toHaveBeenCalled()
+})
+
+it('still reports when the last state was anything other than blocked or failed', () => {
+  const report = vi.fn()
+  onTimeout({ since: 0, now: 600_001, limitMs: 600_000, report, ticketOf: () => ({ ticketId: 't1', open: true }), deviceId: 'laptop',
+    running: ['a1'], reportedStateOf: () => 'progress' })
+  expect(report).toHaveBeenCalledOnce()
+})
+
 it('treats a device that still runs an assignment as still attached', () => {
   expect(alignHello({ running: ['a1'], known: ['a1', 'a2'], stop: vi.fn() })).toEqual({ attach: ['a1'], stop: ['a2'] })
 })

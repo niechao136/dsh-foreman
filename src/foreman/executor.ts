@@ -55,6 +55,11 @@ export interface ForemanExecutorInput {
 export class ForemanExecutor implements Executor {
   /** Frame ids this executor has handed to the transport, so a repeated `start` does not assign the same work twice. */
   private readonly sent = new FrameDedupe(new Set())
+  /**
+   * Input frames waiting on the transport. Unlike `sent`, an entry here is released when its send fails, so the
+   * ticket's next delivery retries it instead of being swallowed as a duplicate.
+   */
+  private readonly delivering = new Set<string>()
   /** Serialises sends so frames for one device reach it in the order they were produced. */
   private queue: Promise<void> = Promise.resolve()
 
@@ -78,7 +83,10 @@ export class ForemanExecutor implements Executor {
 
   /**
    * Queue delivery of the ticket's waiting Inputs. A local assignment keeps the local executor's behaviour; a remote
-   * one gets an `input` frame. A failed input delivery is silent: the next delivery of the same ticket retries it.
+   * one gets an `input` frame.
+   *
+   * A failed delivery releases its frame id, so the ticket's next `deliver` really does retry it. Keeping the id
+   * would have made the retry a no-op and lost the Input silently — the comment on the port promises a retry.
    */
   deliver(ticket: Ticket, assignment: Assignment): void {
     const target = targetOf(assignment)
@@ -89,8 +97,10 @@ export class ForemanExecutor implements Executor {
     const rendered = this.render(ticket)
     const frame: InputFrame = { v: 1, type: 'input', frameId: `input:${ticket.id}:${assignment.id}:${ticket.undelivered.join(',')}`,
       assignmentId: assignment.id, text: rendered.text, attachments: rendered.attachments }
-    if (!this.sent.take(frame.frameId)) return
+    if (this.delivering.has(frame.frameId)) return
+    this.delivering.add(frame.frameId)
     this.enqueue(() => this.input.transport.send(target.deviceId, frame).catch(error => {
+      this.delivering.delete(frame.frameId)
       this.input.log?.(`could not deliver inputs for ${assignment.id} to ${target.deviceId}: ${String(error)}`)
     }))
   }

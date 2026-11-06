@@ -60,6 +60,34 @@ it('delivers inputs to a remote assignment as an input frame and stays quiet whe
   await settle()
 })
 
+it('retries a failed input delivery on the next deliver, rather than swallowing it as a duplicate', async () => {
+  let fail = true
+  const sent: unknown[] = []
+  const executor = new ForemanExecutor({ local: { start: vi.fn(), deliver: vi.fn(), stop: vi.fn() } as never,
+    engine: () => ({ report: vi.fn() }) as never,
+    transport: { send: async (_deviceId, frame) => { if (fail) throw new Error('offline'); sent.push(frame) } } })
+  const withInput = { ...ticket, undelivered: ['i1'] } as Ticket
+  executor.deliver(withInput, remote)
+  await settle()
+  expect(sent).toEqual([])
+  fail = false
+  executor.deliver(withInput, remote)
+  await settle()
+  expect(sent.length).toBe(1)
+})
+
+it('does not send the same input frame twice while it is still in flight', async () => {
+  const sent: unknown[] = []
+  const executor = new ForemanExecutor({ local: { start: vi.fn(), deliver: vi.fn(), stop: vi.fn() } as never,
+    engine: () => ({ report: vi.fn() }) as never,
+    transport: { send: async (_deviceId, frame) => { sent.push(frame) } } })
+  const withInput = { ...ticket, undelivered: ['i1'] } as Ticket
+  executor.deliver(withInput, remote)
+  executor.deliver(withInput, remote)
+  await settle()
+  expect(sent.length).toBe(1)
+})
+
 it('stops a remote assignment with a stop frame rather than waiting for an answer', async () => {
   const { executor, sent } = setup()
   executor.stop(ticket, remote, 'a person stopped it')

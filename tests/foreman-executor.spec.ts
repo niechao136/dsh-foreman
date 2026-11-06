@@ -95,6 +95,30 @@ it('stops a remote assignment with a stop frame rather than waiting for an answe
   expect(sent[0]).toMatchObject({ deviceId: 'laptop', frame: { type: 'stop', assignmentId: 'a1', reason: 'a person stopped it' } })
 })
 
+it('names the input frame so its ack tells the hub which Inputs arrived', async () => {
+  const { inputsOf } = await import('../src/foreman/executor.ts')
+  const { executor, sent } = setup()
+  const withInputs = { ...ticket, undelivered: ['i1', 'i2'] } as Ticket
+  executor.deliver(withInputs, remote)
+  await settle()
+  const frame = sent[0]!.frame as { frameId: string }
+  expect(inputsOf(frame.frameId)).toEqual({ ticketId: 'tk1', assignmentId: 'a1', inputIds: ['i1', 'i2'] })
+})
+
+it('reports blocked, rather than throwing out of the accept transaction, when the task cannot be rendered', async () => {
+  const { executor, report, local } = setup()
+  const failing = new ForemanExecutor({ local: { start: vi.fn(), deliver: vi.fn(), stop: vi.fn() } as never,
+    engine: () => ({ report }) as never,
+    readAttachment: () => { throw new Error('the attachment is missing') },
+    triggerOf: () => ({ trigger: { source: 'dsh', meta: { attachments: [{ id: 'abc12345', kind: 'file' }] } } as never }),
+    transport: { send: async () => {} } })
+  const withFile = { ...remote, target: { deviceId: 'laptop', kind: 'remote' as const, directory: '/w/shop' } } as Assignment
+  expect(() => failing.start(ticket, withFile)).not.toThrow()
+  expect(report.mock.calls[0]![1]).toMatchObject({ state: 'blocked' })
+  expect(local.start).not.toHaveBeenCalled()
+  void executor
+})
+
 it('never sends the same assignment twice when start is called again', async () => {
   const { executor, sent } = setup()
   executor.start(ticket, remote)

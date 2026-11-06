@@ -42,7 +42,7 @@ it('carries a question through with the report', () => {
 it('does not touch the engine when a device disconnects', () => {
   const report = vi.fn()
   const mark = vi.fn()
-  onDisconnect({ mark })
+  onDisconnect({ mark, deviceId: 'laptop' })
   expect(mark).toHaveBeenCalled()
   expect(report).not.toHaveBeenCalled()
 })
@@ -80,15 +80,15 @@ it('still reports when the last state was anything other than blocked or failed'
 })
 
 it('treats a device that still runs an assignment as still attached', () => {
-  expect(alignHello({ running: ['a1'], known: ['a1', 'a2'], stop: vi.fn() })).toEqual({ attach: ['a1'], stop: ['a2'] })
+  expect(alignHello({ running: ['a1'], known: ['a1', 'a2'] })).toEqual({ attach: ['a1'], stop: ['a2'] })
 })
 
 it('treats a device that no longer runs an assignment as needing a decision', () => {
   // The plan's prose says known-minus-running goes to `stop`; its sample test said `stop: []`, which contradicts its
   // own other test. The prose wins (see the ledger's Task 8 ruling): the device has the truth about its processes.
-  expect(alignHello({ running: [], known: ['a1'], stop: vi.fn() })).toEqual({ attach: [], stop: ['a1'] })
+  expect(alignHello({ running: [], known: ['a1'] })).toEqual({ attach: [], stop: ['a1'] })
 })
 
 it('stops nothing and attaches nothing when one side is empty', () => {
-  expect(alignHello({ running: [], known: [], stop: vi.fn() })).toEqual({ attach: [], stop: [] })
+  expect(alignHello({ running: [], known: [] })).toEqual({ attach: [], stop: [] })
 })

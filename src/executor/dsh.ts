@@ -4,7 +4,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { mkdir, rmdir, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
-import { key, latestAssignment, latestReport, liveTicket, runningAssignment, threadKey, waitsForPerson } from '../core/index.ts'
+import { key, latestAssignment, latestReport, liveTicket, runningAssignment, targetOf, threadKey, waitsForPerson } from '../core/index.ts'
 import type { AssessmentOutcome, Assignment, EngineForExecutor, Execution, Executor, Mandate, PolicyEffect, Ticket, TicketInput, Trigger }
   from '../core/index.ts'
 import type { Machine } from '../deployment.ts'
@@ -601,19 +601,28 @@ export class DshExecutor implements Executor {
    * Reconciles running and pending assignments across open tickets after a host restart: notifies Engine of interrupted
    * running assignments and re-queues pending launches (which earlier versions may have kept outside the effect queue),
    * while failed launches (`waitsForPerson`) wait for a person's message or a retry.
+   *
+   * **Remote assignments are left alone.** This host never ran them — a device did, and that device was not restarted
+   * with us, so treating one as interrupted would `Tickets.restart` it and start the same work a second time. The
+   * runtime turns those `blocked` instead and lets each device's `hello` say what it is actually running (design 5.8).
    */
   resume(): void {
     // Launch pending tickets oldest first (in acceptance order).
     for (const ticket of this.host.store.tickets.open().sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
       const running = runningAssignment(ticket), latest = latestAssignment(ticket)
       if (running) {
+        if (targetOf(running).kind === 'remote') continue
         // A restart within this process left DSH's Sessions, jobs and subagents running: they stop first. The inbox keeps an
         // Input that was handed over but not yet taken.
         this.host.context.agents.get(workerSessionId(ticket.id) as SessionId)?.cancel({ kind: 'user' }, { keepInbox: true })
         this.stopWork(ticket.id, 'dsh-foreman restarted', true)
         this.host.engine.assignmentInterrupted(ticket.id, running.id)
       }
-      else if (latest?.state === 'pending' && !waitsForPerson(ticket)) this.start(ticket, latest)
+      else if (latest?.state === 'pending' && !waitsForPerson(ticket)) {
+        // A pending remote assignment was never dispatched to a device before the restart, so dispatching it now is
+        // the first time, not a repeat.
+        this.start(ticket, latest)
+      }
     }
   }
   /** Runs background worker event handling and updates the `worker` health entry on failure or recovery. */

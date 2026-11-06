@@ -39,7 +39,7 @@ import { Outbox } from './outbox.ts'
 import { Passes } from './passes.ts'
 import { Setup } from './setup.ts'
 import { Devices } from '../foreman/devices.ts'
-import { ForemanExecutor } from '../foreman/executor.ts'
+import { ForemanExecutor, inputsOf } from '../foreman/executor.ts'
 import { Hub } from '../foreman/hub.ts'
 import { serve, type Served } from '../foreman/ws.ts'
 import { prepareTicketWithForeman } from '../foreman/prepare.ts'
@@ -532,10 +532,36 @@ export class Runtime extends Service implements SourceHost {
     // If stop() was called while awaiting setup, session creation, or policy sync, do not start background loops.
     if (this.closing()) return
     await this.startHub()
+    // Remote work first: a hub restart says nothing about what a device did, so those assignments are handed to a
+    // person rather than resumed. `DshExecutor.resume` then skips them (design 5.8).
+    this.blockRemoteAssignments()
     this.executor.resume()
     this.passes.start()
     this.effects.start()
     this.runtimeHealth.set({ state: 'ready', detail: 'Orchestrator is ready', at: now() })
+  }
+
+  /**
+   * Report every assignment that was running on a device as `blocked`, once, at startup.
+   *
+   * The device is not restarted when the hub is, so it may still be working; restarting the assignment would run the
+   * same thing twice. `blocked` is the honest state: a person decides whether to wait, retry, or move the work. If
+   * the device reconnects and says it is still running, its `hello` re-aligns it and a later report settles it.
+   */
+  private blockRemoteAssignments(): void {
+    for (const ticket of this.store.tickets.open()) {
+      const running = ticket.assignments.filter(assignment => assignment.state === 'running'
+        && assignment.target?.kind === 'remote')
+      for (const assignment of running) {
+        try {
+          this.engine.report(ticket.id, { state: 'blocked',
+            summary: `the hub restarted while ${assignment.target!.deviceId} was working; waiting for the device to report or a person to decide` })
+        } catch (error) {
+          // A ticket that ended meanwhile is not an error: its report is simply no longer needed.
+          this.ctx.logger.warn('dsh-foreman could not report %s blocked after its own restart: %s', assignment.id, String(error))
+        }
+      }
+    }
   }
 
   /**
@@ -574,6 +600,13 @@ export class Runtime extends Service implements SourceHost {
       else if (frame.type === 'accepted') {
         const where = assignmentWhere(this.store, frame.assignmentId)
         if (where !== undefined && where.open) this.engine.assignmentStarted(where.ticketId, frame.assignmentId)
+      } else if (frame.type === 'ack') {
+        // An ack of an `input` frame is the device's word that those Inputs reached it. Without recording that, a
+        // remote ticket keeps them in `undelivered` and can never finish while it follows Threads.
+        const carried = inputsOf(frame.of)
+        if (carried !== undefined && carried.inputIds.length > 0) {
+          this.engine.inputsDelivered(carried.ticketId, carried.assignmentId, carried.inputIds)
+        }
       } else if (frame.type === 'hello') this.alignDevice(deviceId, frame.running)
     } catch (error) {
       // A frame the ledger refuses must not take the connection down: log it and let the device keep its link.
@@ -590,7 +623,7 @@ export class Runtime extends Service implements SourceHost {
    */
   private alignDevice(deviceId: string, running: readonly string[]): void {
     const known = this.runningOn(this.store, deviceId)
-    const { stop } = alignHello({ running, known, stop: () => {} })
+    const { stop } = alignHello({ running, known })
     for (const assignmentId of stop) {
       const where = assignmentWhere(this.store, assignmentId)
       if (where === undefined || !where.open) continue

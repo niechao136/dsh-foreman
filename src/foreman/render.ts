@@ -32,8 +32,18 @@ export interface Rendered {
   attachments: FrameAttachment[]
 }
 
-/** How many attachment bytes may ride on one frame, leaving room for the text and the rest of the frame. */
-const ATTACHMENT_BUDGET = MAX_FRAME_BYTES - 32 * 1024
+/**
+ * How many **raw** attachment bytes fit in a frame once base64 has expanded them.
+ *
+ * base64 turns every 3 bytes into 4, so budgeting raw bytes against `MAX_FRAME_BYTES` would accept an attachment the
+ * peer then refuses: 224 KiB raw becomes about 299 KiB on the wire, past the 256 KiB cap. The margin leaves room for
+ * the rest of the frame — the task text, ids and JSON punctuation.
+ */
+const ENCODED_OVERHEAD = 4 / 3
+const ATTACHMENT_BUDGET = Math.floor((MAX_FRAME_BYTES - 32 * 1024) / ENCODED_OVERHEAD)
+
+/** The size a buffer takes once base64-encoded, without actually encoding it. */
+const encodedSize = (bytes: number): number => Math.ceil(bytes / 3) * 4
 
 /** The attachments a trigger names, filtered to ids the hub will actually be able to read. */
 const refsOf = (trigger: Trigger | undefined): AttachmentRef[] => {
@@ -47,11 +57,16 @@ const refsOf = (trigger: Trigger | undefined): AttachmentRef[] => {
 /** The display name of an attachment: what the source recorded, else its id, so the device always has something to open. */
 const nameOf = (ref: AttachmentRef): string => typeof ref.name === 'string' && ref.name !== '' ? ref.name : String(ref.id)
 
-/** Renders the section listing attachments, or nothing when the task carries none. */
+/**
+ * Renders the section listing attachments, or nothing when the task carries none.
+ *
+ * English, like the rest of the hub's worker-facing text (`ticketExecution` writes "The operator attached these…" in
+ * the same voice). The request itself and the file names stay in whatever language the person used.
+ */
 function attachmentSection(names: readonly string[]): string {
   if (names.length === 0) return ''
   const listing = names.map(name => `- ${name}`).join('\n')
-  return `\n## 随任务送达的附件\n\n${listing}\n\n这些附件已经随本次任务到达本机，用 read（文本）或 read_image（图片）按上面的名字打开。\n`
+  return `\n## Attachments that arrived with this task\n\n${listing}\n\nThese files are on this machine already: open them by the names above with read (text) or read_image (images).\n`
 }
 
 /**
@@ -75,16 +90,17 @@ export function renderForDevice(input: RenderInput): Rendered {
   let total = 0
   for (const ref of refs) {
     const bytes = input.readAttachment(String(ref.id))
-    total += bytes.byteLength
-    if (total > ATTACHMENT_BUDGET) {
-      throw new Error(`the attachments of ticket ${ticket.id} are too large to send: more than ${ATTACHMENT_BUDGET} bytes`)
+    // Count what the frame will weigh, not what the file weighs: base64 expands every 3 bytes to 4.
+    total += encodedSize(bytes.byteLength)
+    if (total > MAX_FRAME_BYTES - 32 * 1024) {
+      throw new Error(`the attachments of ticket ${ticket.id} are too large to send: more than ${ATTACHMENT_BUDGET} bytes of file, once base64 has expanded them`)
     }
     attachments.push({ id: String(ref.id), name: nameOf(ref),
       mediaType: typeof ref.mediaType === 'string' ? ref.mediaType : undefined, bytes: bytes.toString('base64') })
   }
   const scope = scopeOf(ticket)
   const request = trigger?.text?.trim() ?? ''
-  const sections = [`# ${ticket.title}`, scope === '' ? '' : `\n${scope}\n`, request === '' ? '' : `\n## 原始需求\n\n${request}\n`,
+  const sections = [`# ${ticket.title}`, scope === '' ? '' : `\n${scope}\n`, request === '' ? '' : `\n## The request as it was written\n\n${request}\n`,
     attachmentSection(attachments.map(attachment => attachment.name ?? attachment.id))]
   return { text: sections.filter(section => section !== '').join(''), attachments }
 }

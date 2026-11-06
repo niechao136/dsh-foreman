@@ -29,6 +29,24 @@ export interface ForemanLink extends ForemanTransport {
   online(): Online[]
 }
 
+/**
+ * The id of the `input` frame carrying `inputIds` to an assignment.
+ *
+ * Encoded so the device's `ack` of this frame tells the hub exactly which Inputs reached the device: the ledger needs
+ * that to clear `ticket.undelivered`, and without it a remote ticket can never finish while it follows Threads.
+ */
+export const inputFrameId = (ticketId: string, assignmentId: string, inputIds: readonly string[]): string =>
+  `input:${ticketId}:${assignmentId}:${inputIds.join(',')}`
+
+/** The Input ids an `input` frame id carried, or undefined when the id is not one of ours. */
+export function inputsOf(frameId: string): { ticketId: string; assignmentId: string; inputIds: string[] } | undefined {
+  const match = /^input:([^:]+):([^:]+):(.*)$/.exec(frameId)
+  if (match === null) return undefined
+  const [, ticketId, assignmentId, joined] = match
+  if (ticketId === undefined || assignmentId === undefined) return undefined
+  return { ticketId, assignmentId, inputIds: joined === '' || joined === undefined ? [] : joined.split(',') }
+}
+
 /** What the executor needs from the Engine: the two callbacks an executor may call. */
 export type ExecutorReporter = Pick<EngineForExecutor, 'report'>
 
@@ -65,14 +83,27 @@ export class ForemanExecutor implements Executor {
 
   constructor(private readonly input: ForemanExecutorInput) {}
 
-  /** Queue a pending assignment for launch: local goes to the local executor, remote becomes one `assign` frame. */
+  /**
+   * Queue a pending assignment for launch: local goes to the local executor, remote becomes one `assign` frame.
+   *
+   * Rendering happens inside this method, which the Engine calls within its transaction, so a render failure — an
+   * attachment that is missing from the store, say — must not throw out of it and abort the accept. It is reported
+   * `blocked` instead, which is the same outcome as a device that cannot be reached.
+   */
   start(ticket: Ticket, assignment: Assignment): void {
     const target = targetOf(assignment)
     if (target.kind === 'local') {
       this.input.local.start(ticket, assignment)
       return
     }
-    const frame = this.assignFrame(ticket, assignment, target.deviceId, target.directory)
+    let frame: AssignFrame
+    try {
+      frame = this.assignFrame(ticket, assignment, target.deviceId, target.directory)
+    } catch (error) {
+      this.input.log?.(`could not render ${assignment.id} for ${target.deviceId}: ${String(error)}`)
+      this.input.engine().report(ticket.id, { state: 'blocked', summary: `the task could not be prepared for ${target.deviceId}: ${error instanceof Error ? error.message : String(error)}` })
+      return
+    }
     if (!this.sent.take(frame.frameId)) return
     this.enqueue(() => this.input.transport.send(target.deviceId, frame).catch(error => {
       this.input.log?.(`could not assign ${assignment.id} to ${target.deviceId}: ${String(error)}`)
@@ -87,6 +118,9 @@ export class ForemanExecutor implements Executor {
    *
    * A failed delivery releases its frame id, so the ticket's next `deliver` really does retry it. Keeping the id
    * would have made the retry a no-op and lost the Input silently — the comment on the port promises a retry.
+   *
+   * The frame id is the one the device's `ack` will carry back, and it encodes the Input ids it delivered, which is
+   * how the hub knows which Inputs the device took (see `inputsOf`).
    */
   deliver(ticket: Ticket, assignment: Assignment): void {
     const target = targetOf(assignment)
@@ -94,9 +128,16 @@ export class ForemanExecutor implements Executor {
       this.input.local.deliver(ticket, assignment)
       return
     }
-    const rendered = this.render(ticket)
-    const frame: InputFrame = { v: 1, type: 'input', frameId: `input:${ticket.id}:${assignment.id}:${ticket.undelivered.join(',')}`,
-      assignmentId: assignment.id, text: rendered.text, attachments: rendered.attachments }
+    let frame: InputFrame
+    try {
+      const rendered = this.render(ticket)
+      frame = { v: 1, type: 'input', frameId: inputFrameId(ticket.id, assignment.id, ticket.undelivered),
+        assignmentId: assignment.id, text: rendered.text, attachments: rendered.attachments }
+    } catch (error) {
+      // Rendering must not throw inside the Engine's transaction: a failed input is retried by the next delivery.
+      this.input.log?.(`could not render inputs for ${assignment.id} to ${target.deviceId}: ${String(error)}`)
+      return
+    }
     if (this.delivering.has(frame.frameId)) return
     this.delivering.add(frame.frameId)
     this.enqueue(() => this.input.transport.send(target.deviceId, frame).catch(error => {

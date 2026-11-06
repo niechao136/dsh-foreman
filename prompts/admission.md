@@ -28,6 +28,7 @@ The host posts it as a reply to the triggering message; do not quote that messag
 Return rule_assessments with exactly one entry for every enabled rule: rule_id, matched and a factual reason.
 Include negative judgments as matched=false; a reason saying that a rule does not apply cannot be a positive match.
 Never include disabled, unknown or repeated rule IDs.
+Fill device only when the request itself says where the work has to happen — a named machine, an office-only system, a machine the person says they are at. Otherwise leave it out: the host picks the least busy online machine that can reach the project, and a guess here can send work to a machine that cannot do it.
 The host derives positive-only matches from those booleans.
 One source message produces at most one ticket.
 If matching rules conflict or the scope is ambiguous, ignore quietly.

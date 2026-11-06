@@ -50,11 +50,14 @@ export function applyReport(input: ApplyReportInput): (assignmentId: string, fra
 }
 
 /**
- * Record that a device went away. Deliberately does nothing else: the assignment stays `running`, because the device
- * may be mid-work behind a flaky link, and restarting it would run the same thing twice.
+ * What a disconnect means: a time, and nothing else.
+ *
+ * Exported for the record rather than for a caller — the hub already forgets a closed connection, and this function
+ * exists to say in one place that **no Engine method belongs here**. Restarting a ticket on a disconnect would run
+ * work the device may still be doing.
  */
-export function onDisconnect(input: { mark: (deviceId: string) => void; deviceId?: string }): void {
-  input.mark(input.deviceId ?? '')
+export function onDisconnect(input: { mark: (deviceId: string) => void; deviceId: string }): void {
+  input.mark(input.deviceId)
 }
 
 export interface OnTimeoutInput {
@@ -97,18 +100,15 @@ export interface AlignHelloInput {
   running: readonly string[]
   /** The assignments the ledger believes this device is running. */
   known: readonly string[]
-  /** Stops an assignment the ledger has given up on but the device may still be working. */
-  stop: (assignmentId: string) => void
 }
 
 /**
  * Reconciles a reconnecting device's word with the ledger.
  *
  * `attach` is what both sides agree is running: nothing to do but keep waiting. `stop` is what the ledger believes is
- * running and the device does not — the device has the truth about its own processes, so those are handed to the
- * caller to stop rather than silently restarted. What the device claims and the ledger does not know is neither:
- * it is a report the device will send or a stale belief, and stopping work the ledger never recorded would be a
- * decision made on a claim alone.
+ * running and the device does not — the device has the truth about its own processes, so those need a decision rather
+ * than a silent restart. What the device claims and the ledger does not know is neither: it is a report the device
+ * will send or a stale belief, and acting on a claim alone would be a decision made on nothing.
  */
 export function alignHello(input: AlignHelloInput): { attach: string[]; stop: string[] } {
   const running = new Set(input.running)

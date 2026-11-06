@@ -12,7 +12,7 @@
  * half-copy is worse than a printed list.
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
@@ -93,13 +93,24 @@ function plan(home) {
 }
 
 /** Total bytes of a file or directory tree, without following links. */
+/**
+ * Total bytes under a path.
+ *
+ * Walks the tree itself rather than shelling out to `du`: `du -sb` is GNU-specific, and on a platform whose `du`
+ * lacks `-b` (macOS/BSD) the command fails and the old fallback reported only the directory inode's size — a number
+ * small enough to look like the tree was empty, on the one page an operator reads before deciding the copy is small.
+ * Links are counted as their own size and not followed, so a symlink loop cannot hang the walk.
+ */
 function sizeOf(path) {
-  const info = statSync(path)
+  let info
+  try { info = lstatSync(path) }
+  catch { return 0 }
   if (!info.isDirectory()) return info.size
-  const result = spawnSync('du', ['-sb', path], { encoding: 'utf8' })
-  if (result.status === 0) return Number(result.stdout.split(/\s+/)[0]) || 0
-  // No `du` (Windows): report the directory's own size, which is enough to show it was looked at.
-  return info.size
+  let total = info.size
+  let entries
+  try { entries = readdirSync(path) } catch { return total }
+  for (const name of entries) total += sizeOf(join(path, name))
+  return total
 }
 
 /** Packs the directories into a tar, after the checkpoint. Windows has no guaranteed `tar`, so it prints instead. */

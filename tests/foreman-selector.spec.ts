@@ -55,3 +55,10 @@ it('picks nothing when every device is busy elsewhere but none has the root', ()
   const other = { ...laptop, roots: [{ project: 'other', path: '/w/other' }] }
   expect(selectDevice({ project: 'shop', device: 'laptop' }, [other], online)).toBeUndefined()
 })
+
+it('carries a device the accept named through to the selection, by id or by name', () => {
+  const other = { ...dorm, name: 'Dorm', tokenHash: 'z', roots: [{ project: 'shop', path: '/h/shop' }] }
+  // Least-busy would pick `dorm`; naming `laptop` overrides it.
+  expect(selectDevice({ device: 'laptop', project: 'shop' }, [laptop, other], online)!.deviceId).toBe('laptop')
+  expect(selectDevice({ device: 'Dorm', project: 'shop' }, [laptop, other], online)!.deviceId).toBe('dorm')
+})

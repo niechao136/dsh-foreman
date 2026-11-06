@@ -30,6 +30,15 @@ describe('the migration script', () => {
     expect(verify).toContain('checkpoint ok')
   })
 
+  it('sizes the tree it will carry, so a copy that is too large is visible before it is made', () => {
+    const root = populated()
+    writeFileSync(join(root, 'sessions/large.bin'), Buffer.alloc(64 * 1024))
+    const plan = run('plan', '--home', root)
+    // The byte count is the files', not the directory inode's: the old fallback understated it to the inode size.
+    const sessions = /sessions: (\d+) bytes/.exec(plan)
+    expect(Number(sessions?.[1] ?? 0)).toBeGreaterThan(64 * 1024)
+  })
+
   it('names what a move must carry, so a partial copy is visible', () => {
     const root = populated()
     const plan = run('plan', '--home', root)

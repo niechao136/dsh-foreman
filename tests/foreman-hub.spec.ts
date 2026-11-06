@@ -121,6 +121,58 @@ it('reports each device running count from its latest heartbeat', async () => {
   expect(hub.snapshot()).toEqual([{ id: 'laptop', running: 1, lastSeenAt: expect.any(String) }])
 })
 
+it('refuses a device whose declared roots disagree with its registry record', async () => {
+  const sent: string[] = []
+  const close = vi.fn()
+  const registry = { verify: () => true, get: () => ({ id: 'laptop', name: 'L', labels: [], tokenHash: 'h',
+    roots: [{ project: 'shop', path: '/w/shop' }] }), seen: vi.fn(), list: () => [] }
+  const hub = new Hub({ devices: registry as never, onFrame: vi.fn() })
+  const { a, b } = memoryChannel()
+  hub.attach('laptop', { ...a, send: text => { sent.push(text) }, close })
+  b.send(JSON.stringify(hello('laptop', 'tok', { roots: [{ project: 'shop', path: '/elsewhere/shop' }] })))
+  await vi.waitFor(() => expect(close).toHaveBeenCalled())
+  expect(JSON.parse(sent[0]!)).toMatchObject({ type: 'error', reason: expect.stringContaining('different path') })
+  expect(hub.online()).toEqual([])
+})
+
+it('refuses a device that declares a project its registry record lacks', async () => {
+  const sent: string[] = []
+  const registry = { verify: () => true, get: () => ({ id: 'laptop', name: 'L', labels: [], tokenHash: 'h', roots: [] }),
+    seen: vi.fn(), list: () => [] }
+  const hub = new Hub({ devices: registry as never, onFrame: vi.fn() })
+  const { a, b } = memoryChannel()
+  hub.attach('laptop', { ...a, send: text => { sent.push(text) } })
+  b.send(JSON.stringify(hello('laptop', 'tok', { roots: [{ project: 'shop', path: '/w/shop' }] })))
+  await vi.waitFor(() => expect(sent.length).toBe(1))
+  expect(JSON.parse(sent[0]!)).toMatchObject({ type: 'error', reason: expect.stringContaining('add it') })
+})
+
+it('admits a device whose declared roots match its registry record exactly', async () => {
+  const onFrame = vi.fn()
+  const registry = { verify: () => true, get: () => ({ id: 'laptop', name: 'L', labels: [], tokenHash: 'h',
+    roots: [{ project: 'shop', path: 'D:\\工作\\我的 项目' }] }), seen: vi.fn(), list: () => [] }
+  const hub = new Hub({ devices: registry as never, onFrame })
+  const { a, b } = memoryChannel()
+  hub.attach('laptop', a)
+  b.send(JSON.stringify(hello('laptop', 'tok', { roots: [{ project: 'shop', path: 'D:\\工作\\我的 项目' }] })))
+  await vi.waitFor(() => expect(hub.online()).toEqual(['laptop']))
+  expect(onFrame).toHaveBeenCalledOnce()
+})
+
+it('bounds a heartbeat count a device could use to look idle or infinitely busy', async () => {
+  const hub = new Hub({ devices: devices(() => true), onFrame: vi.fn() })
+  const { a, b } = memoryChannel()
+  hub.attach('laptop', a)
+  b.send(JSON.stringify(hello()))
+  await vi.waitFor(() => expect(hub.online()).toEqual(['laptop']))
+  b.send(JSON.stringify({ v: 1, type: 'heartbeat', frameId: 'hb-huge', deviceId: 'laptop', running: 1e9 }))
+  await vi.waitFor(() => expect(hub.running('laptop')).toBe(1000))
+  b.send(JSON.stringify({ v: 1, type: 'heartbeat', frameId: 'hb-neg', deviceId: 'laptop', running: -5 }))
+  await vi.waitFor(() => expect(hub.running('laptop')).toBe(0))
+  b.send(JSON.stringify({ v: 1, type: 'heartbeat', frameId: 'hb-nan', deviceId: 'laptop', running: 'many' }))
+  await vi.waitFor(() => expect(hub.running('laptop')).toBe(0))
+})
+
 it('lists no device as online before it said hello', async () => {
   const hub = new Hub({ devices: devices(() => true), onFrame: vi.fn() })
   const { a } = memoryChannel()

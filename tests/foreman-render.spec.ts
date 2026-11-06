@@ -40,6 +40,20 @@ it('refuses to render an attachment whose bytes exceed the frame budget', () => 
   expect(() => renderForDevice({ ticket, trigger: withFile, readAttachment: () => Buffer.alloc(300 * 1024) })).toThrow(/too large/)
 })
 
+it('budgets the base64 size, so a frame it accepts really fits the cap', () => {
+  // 200 KiB of file becomes ~273 KiB on the wire, past the 256 KiB cap — the renderer must refuse it here rather
+  // than let the peer's parseFrame reject the frame it was promised was valid.
+  const withFile = { ...trigger, meta: { ...trigger.meta, attachments: [{ id: 'edge1234', kind: 'file', name: 'a.bin' }] } } as Trigger
+  expect(() => renderForDevice({ ticket, trigger: withFile, readAttachment: () => Buffer.alloc(200 * 1024) })).toThrow(/too large/)
+})
+
+it('accepts an attachment that fits the cap both raw and encoded', () => {
+  const withFile = { ...trigger, meta: { ...trigger.meta, attachments: [{ id: 'ok123456', kind: 'file', name: 'a.bin' }] } } as Trigger
+  const { attachments } = renderForDevice({ ticket, trigger: withFile, readAttachment: () => Buffer.alloc(120 * 1024) })
+  expect(attachments.length).toBe(1)
+  expect(attachments[0]!.bytes.length).toBeLessThan(256 * 1024)
+})
+
 it('names the ticket, its scope and its directory for the device, without hub paths', () => {
   const { text } = renderForDevice({ ticket, trigger, readAttachment: () => Buffer.from('') })
   expect(text).toContain('Fix it')

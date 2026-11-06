@@ -8,7 +8,7 @@
  * Nothing in this file writes the ledger. Frames that carry facts about work are handed to `onFrame`, which the
  * runtime maps onto the Engine; a hub that changed tickets itself would be a second writer, which the design forbids.
  */
-import { FrameDedupe, FrameError, FOREMAN_PROTOCOL_VERSION, encodeFrame, parseFrame, type Frame } from './protocol.ts'
+import { FrameDedupe, FrameError, FOREMAN_PROTOCOL_VERSION, encodeFrame, parseFrame, type Frame, type Root } from './protocol.ts'
 import type { DeviceRecord } from './devices.ts'
 import type { Online } from './selector.ts'
 
@@ -50,8 +50,7 @@ function memory(): Memory {
 }
 
 /** A pair of connected channels: `a` is the hub's end and `b` the device's, or the other way round. */
-export function memoryChannel(): { a: Channel; b: Channel } {
-  const a = memory(), b = memory()
+export function memoryChannel(): { a: Channel; b: Channel } {  const a = memory(), b = memory()
   a.peer = b; b.peer = a
   return { a, b }
 }
@@ -195,7 +194,7 @@ export class Hub {
       return
     }
     connection.lastSeenAt = this.now()
-    if (frame.type === 'heartbeat') connection.runningCount = Math.max(0, frame.running)
+    if (frame.type === 'heartbeat') connection.runningCount = countOf(frame.running)
     if (frame.type === 'hello') { connection.running = [...frame.running]; connection.runningCount = frame.running.length }
     this.devices.seen(deviceId, connection.lastSeenAt)
     this.onFrame(deviceId, frame)
@@ -216,6 +215,13 @@ export class Hub {
       this.refuse(connection, 'invalid token, or this device is revoked')
       return
     }
+    // The registry's roots are what the selector maps a project through, so a device that declares different ones
+    // would be handed a path it never offered. Say so plainly instead of letting the job fail somewhere unexpected.
+    const mismatch = rootsMismatch(this.devices.get(deviceId)?.roots ?? [], frame.roots)
+    if (mismatch !== undefined) {
+      this.refuse(connection, mismatch)
+      return
+    }
     connection.handshook = true
     connection.token = frame.token
     connection.running = [...frame.running]
@@ -234,4 +240,39 @@ export class Hub {
     connection.channel.close()
     for (const [id, current] of this.connections) if (current === connection) this.connections.delete(id)
   }
+}
+
+/**
+ * A heartbeat's running count, bounded.
+ *
+ * A device states how many assignments it holds. The value feeds the selector's least-busy ranking, so a bogus or
+ * hostile one must not be able to make a machine look idle or infinitely busy: anything that is not a sane count is
+ * treated as none, and a real fleet's largest plausible load caps it.
+ */
+const MAX_RUNNING = 1000
+function countOf(reported: unknown): number {
+  if (typeof reported !== 'number' || !Number.isFinite(reported)) return 0
+  return Math.min(MAX_RUNNING, Math.max(0, Math.floor(reported)))
+}
+
+/**
+ * Whether a device's declared roots disagree with its registry record, and why.
+ *
+ * Compared as exact strings, deliberately: the registry holds the path the operator typed, and normalising here would
+ * hide a real difference (a renamed directory, a different drive letter) that would otherwise surface as a job
+ * failing in the wrong place. A device may also declare no roots at all, which says nothing to contradict.
+ */
+function rootsMismatch(registered: readonly Root[], declared: readonly Root[]): string | undefined {
+  if (declared.length === 0) return undefined
+  const known = new Map(registered.map(root => [root.project, root.path]))
+  for (const root of declared) {
+    const path = known.get(root.project)
+    if (path === undefined) {
+      return `this device declares project ${root.project}, which its registry record does not have; add it with scripts/add-device.mjs first`
+    }
+    if (path !== root.path) {
+      return `this device declares ${root.project} at a different path than its registry record; correct one of them, because the hub assigns work by the registered path`
+    }
+  }
+  return undefined
 }

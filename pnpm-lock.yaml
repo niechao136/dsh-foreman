@@ -10,7 +10,7 @@ importers:
     dependencies:
       dsh-foreman-node:
         specifier: github:niechao136/dsh-foreman-node
-        version: https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/687a8e047e72560af71c323249c9bf60d15ca8e2(3af493996ba7487b49d91a5b045870ca)
+        version: https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/cf197e68420ebaeebf7ee56b329103dd7d42ed0d(25aec6a6897eea0dc7260da683033580)
       proper-lockfile:
         specifier: 4.1.2
         version: 4.1.2
@@ -222,6 +222,9 @@ packages:
         optional: true
       '@deepseek-ai/cordis-plugin-loader':
         optional: true
+
+  '@deepseek-ai/cosmokit@1.8.5':
+    resolution: {integrity: sha512-LXsrlem9z8dq4sLflj2yuCuYX7KqhdzF5hZly3eZyuTo8d6oDSOXuEgC5DbQWKW+lksm6zmOutQLsP/ma6wR6A==}
 
   '@deepseek-ai/cosmokit@1.8.6':
     resolution: {integrity: sha512-ZSD/fN52L498LBIOYwjIOlaLv5veY6ZEwI2yzvZUKQtctn0QAPqu8tKdJ+OF5+Tv6NBq1U+wJWH+QI6OGy5EvQ==}
@@ -1306,18 +1309,22 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
-  dsh-foreman-node@https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/687a8e047e72560af71c323249c9bf60d15ca8e2:
-    resolution: {gitHosted: true, integrity: sha512-vVhGNRE0FahHfy5e4EWaqQ1e/zDw+NXiBCIrh2SFu3WxGzPgGq8qw+aab49A50FDSNNcRcULctl41WRojlchaA==, tarball: https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/687a8e047e72560af71c323249c9bf60d15ca8e2}
+  dsh-foreman-node@https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/cf197e68420ebaeebf7ee56b329103dd7d42ed0d:
+    resolution: {gitHosted: true, integrity: sha512-MkPopRlwKVYRHsxAh/ic0MEIrbRvW4U3rUthOoBxZQr42TrsCoKCx+TejYusCBczQ2+c9tWIi9PxQujoqv8QgA==, tarball: https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/cf197e68420ebaeebf7ee56b329103dd7d42ed0d}
     version: 0.1.0
     engines: {node: ^22.19.0 || >=24.0.0}
     peerDependencies:
       '@deepseek-ai/cordis': 4.0.5-alpha.1
+      '@deepseek-ai/cosmokit': 1.8.5
       '@deepseek-ai/dsh-agent': ^0.2.1-alpha.2
       '@deepseek-ai/dsh-api-session-controller': ^0.2.1-alpha.2
+      '@deepseek-ai/dsh-llm': ^0.2.1-alpha.2
       '@deepseek-ai/dsh-permission-presets': ^0.2.1-alpha.2
       '@deepseek-ai/dsh-session': ^0.2.1-alpha.2
+      '@deepseek-ai/dsh-session-persistence': ^0.2.1-alpha.2
       '@deepseek-ai/dsh-tools': ^0.2.1-alpha.2
       '@deepseek-ai/dsh-workspace': ^0.2.1-alpha.2
+      '@deepseek-ai/schemastery': 3.18.5-alpha.1
 
   dts-resolver@3.0.0:
     resolution: {integrity: sha512-1T1f+z+4tl9XD+m+0HBgWoL/nm0bOIffyWaUuUSBlFg/86IWvfx+wjNaO/ybU0AJzG9/Mi5hBUgGV6zCmWEN7Q==}
@@ -2012,7 +2019,7 @@ snapshots:
     dependencies:
       '@deepseek-ai/cordis': 4.0.5-alpha.1(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1)
       '@deepseek-ai/cordis-plugin-loader': 1.0.6-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)(node-addon-require-builtin@0.1.9)
-      '@deepseek-ai/cosmokit': 1.8.6
+      '@deepseek-ai/cosmokit': 1.8.5
       js-yaml: 4.3.2
 
   '@deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)(node-addon-require-builtin@0.1.9)':
@@ -2030,6 +2037,8 @@ snapshots:
     optionalDependencies:
       '@deepseek-ai/cordis-plugin-include': 1.0.9(@deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1)(@deepseek-ai/cordis@4.0.5-alpha.1)
       '@deepseek-ai/cordis-plugin-loader': 1.0.6-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)(node-addon-require-builtin@0.1.9)
+
+  '@deepseek-ai/cosmokit@1.8.5': {}
 
   '@deepseek-ai/cosmokit@1.8.6': {}
 
@@ -2980,15 +2989,19 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  dsh-foreman-node@https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/687a8e047e72560af71c323249c9bf60d15ca8e2(3af493996ba7487b49d91a5b045870ca):
+  dsh-foreman-node@https://codeload.github.com/niechao136/dsh-foreman-node/tar.gz/cf197e68420ebaeebf7ee56b329103dd7d42ed0d(25aec6a6897eea0dc7260da683033580):
     dependencies:
       '@deepseek-ai/cordis': 4.0.5-alpha.1(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1)
+      '@deepseek-ai/cosmokit': 1.8.5
       '@deepseek-ai/dsh-agent': 0.2.1-alpha.2(3dc6930769662420cb44e109694f1822)
       '@deepseek-ai/dsh-api-session-controller': 0.2.1-alpha.2(f0f09f52f33ce9de681672fa09ab049c)
+      '@deepseek-ai/dsh-llm': 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
       '@deepseek-ai/dsh-permission-presets': 0.2.1-alpha.2(f6be8f3940a5b4abbf1092bac012a3f9)
       '@deepseek-ai/dsh-session': 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))
+      '@deepseek-ai/dsh-session-persistence': 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-brand@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-session@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)))(@deepseek-ai/dsh-timeout@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))
       '@deepseek-ai/dsh-tools': 0.2.1-alpha.2(7dae165423b610802c67ae1eb268e109)
       '@deepseek-ai/dsh-workspace': 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-session-persistence@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-brand@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-session@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)))(@deepseek-ai/dsh-timeout@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)))(@deepseek-ai/dsh-session@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)))(@deepseek-ai/dsh-storage-domain@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-storage@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)))(@deepseek-ai/dsh-storage@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-typert-protocol@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))
+      '@deepseek-ai/schemastery': 3.18.5-alpha.1
 
   dts-resolver@3.0.0: {}
 

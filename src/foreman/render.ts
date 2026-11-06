@@ -57,8 +57,14 @@ function attachmentSection(names: readonly string[]): string {
 /**
  * Builds the text a device's worker reads and the bytes that travel with it.
  *
- * The text has three parts: what the ticket is for, the request as the person wrote it, and the attachment names.
- * The request text is the source's own words, unchanged — a device should read what was asked, not a paraphrase.
+ * The text has three parts: what the ticket is for, the scope the accept recorded, and the request as the person
+ * wrote it. The request is the source's own words, unchanged — a device should read what was asked, not a
+ * paraphrase.
+ *
+ * **The hub's `execution.assignment` is filtered, not included verbatim.** `ticketExecution` builds that text for a
+ * worker on this host, and for a local ticket with attachments it lists absolute paths under
+ * `~/.dsh/attachments/...` — paths that do not exist on a device, and that design 5.7 says must never leave the hub.
+ * The device gets the bytes instead, plus the names listed at the end.
  *
  * @throws When the attachments together exceed the frame budget: a truncated task would be worse than a refused one.
  */
@@ -76,9 +82,26 @@ export function renderForDevice(input: RenderInput): Rendered {
     attachments.push({ id: String(ref.id), name: nameOf(ref),
       mediaType: typeof ref.mediaType === 'string' ? ref.mediaType : undefined, bytes: bytes.toString('base64') })
   }
-  const scope = ticket.execution?.assignment?.trim() ?? ''
+  const scope = scopeOf(ticket)
   const request = trigger?.text?.trim() ?? ''
   const sections = [`# ${ticket.title}`, scope === '' ? '' : `\n${scope}\n`, request === '' ? '' : `\n## 原始需求\n\n${request}\n`,
     attachmentSection(attachments.map(attachment => attachment.name ?? attachment.id))]
   return { text: sections.filter(section => section !== '').join(''), attachments }
+}
+
+/**
+ * The ticket's scope statement with any hub path removed.
+ *
+ * `execution.assignment` may be a routing note, a scope sentence, or — for a local ticket with attachments — a block
+ * listing absolute hub attachment paths. A line that is only part of such a listing is dropped whole rather than
+ * left as a dangling bullet, and any path-shaped run inside a kept line is removed.
+ */
+function scopeOf(ticket: Ticket): string {
+  const assignment = ticket.execution?.assignment?.trim() ?? ''
+  if (assignment === '') return ''
+  return assignment.split('\n').flatMap(line => {
+    if (/^\s*-\s*(?:image|file):/.test(line)) return []
+    const cleaned = line.replace(/[A-Za-z]?:?[\\/](?:[^\s\\/:]+[\\/])+[^\s:;,"')]+/g, '').replace(/[ \t]{2,}/g, ' ').trim()
+    return cleaned === '' || cleaned === '-' ? [] : [cleaned]
+  }).join('\n').trim()
 }

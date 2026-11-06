@@ -19,6 +19,22 @@ it('carries attachments as bytes, not as hub paths', () => {
   expect(result.text).not.toContain('/.dsh/attachments')
 })
 
+it('strips the hub attachment paths a local ticket records in its execution text', () => {
+  // ticketExecution() writes these lines for a worker on this host; a device must never see them.
+  const withPaths = { ...ticket, execution: { name: 'fix', directory: '/w/shop',
+    assignment: 'Fix the login.\nThe operator attached these; open them (read_image for images) before deciding anything:\n- file: a.txt at /home/me/.dsh/attachments/v1/objects/ab/abc12345'
+  } } as unknown as Ticket
+  const { text } = renderForDevice({ ticket: withPaths, trigger, readAttachment: () => Buffer.from('') })
+  expect(text).not.toContain('/home/me/.dsh/attachments')
+  expect(text).not.toContain('ab/abc12345')
+  expect(text).toContain('Fix the login.')
+})
+
+it('keeps a scope sentence that names no path', () => {
+  const scoped = { ...ticket, execution: { name: 'fix', directory: '/w/shop', assignment: 'Scope: the login form only.' } } as unknown as Ticket
+  expect(renderForDevice({ ticket: scoped, trigger, readAttachment: () => Buffer.from('') }).text).toContain('Scope: the login form only.')
+})
+
 it('refuses to render an attachment whose bytes exceed the frame budget', () => {
   const withFile = { ...trigger, meta: { ...trigger.meta, attachments: [{ id: 'big12345', kind: 'file' }] } } as Trigger
   expect(() => renderForDevice({ ticket, trigger: withFile, readAttachment: () => Buffer.alloc(300 * 1024) })).toThrow(/too large/)

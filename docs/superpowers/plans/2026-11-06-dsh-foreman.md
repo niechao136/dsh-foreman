@@ -36,21 +36,23 @@
 ## 决策（写进代码前先读）
 
 1. **`dsh-foreman` 是 `dsh-superagent-local` 的整仓 fork**，不是从零搭壳。这样内核拷贝、测试夹具（`tests/fixtures/host.ts` 等）和 60 多个既有测试一起过来，且与「用拷贝而非共享包」的结论一致。
-2. **两个独立包，不是一包两入口**：`dsh-foreman`（Hub 侧，装在服务器）与 `dsh-foreman-node`（设备侧，每台设备一个）在**同一个仓库**里，但各有自己的 `package.json` 与 `cordis.patch.yml`。理由：一个包只有一份 patch，设备装上会连带插入 hub 那行，而 hub 要求 `stateDir`、要锁库、要开监听，笔记本上会起不来。两个包才能做到「设备安装是一条命令」。
+2. **两个独立仓库**：`github.com/niechao136/dsh-foreman`（Hub 侧，装在服务器）与 `github.com/niechao136/dsh-foreman-node`（设备侧，每台设备一个）。一个包里只有一份 patch，若合在一处，设备装上会连带插入 hub 那行，而 hub 要求 `stateDir`、要锁库、要开监听，笔记本上会起不来。两个仓库才能做到「设备安装是一条命令」。
 3. **`Ticket.target` 也要加**：设计只写了 `Assignment.target`，但 `newAssignment` 在 `Tickets.create` 里创建 Assignment，它读不到 `outcome`。所以 accept 时把选择写进 `Ticket.target`，`newAssignment` 复制到 `Assignment.target`。这是本次唯一超出设计文字的改动。
 4. **Hub 与传输解耦**：`Hub` 只认一个 `Channel` 接口（`send`/`close`/事件），`ws` 只出现在 `src/foreman/ws.ts` 一个文件里。测试用内存管道。
 5. **设备令牌只存 SHA-256 十六进制**，用 `node:crypto`，不加依赖。
-6. **帧定义有两份拷贝**（Hub 与 node 各一份），因为它们必须是独立包。用一条测试防漂移：Hub 仓库的测试同时 import 两边，互相解析对方编码的帧，不一致就红。
+6. **帧定义只有一份，在 node 仓**（`dsh-foreman-node/src/protocol.ts`），Hub 通过 `"dsh-foreman-node": "github:niechao136/dsh-foreman-node"` 依赖它并从 `dsh-foreman-node/protocol` 导入。反过来（协议归 Hub）会把整个领域内核装进每台笔记本。
 7. **飞书「群即项目」的映射进 Policy**（见设计 5.2）：它既是路由依据，也是设备选择的约束，所以和 Selector 一起做（Task 5）。
 8. **主 loop 用独立 `DSH_HOME` 与独立 profile**（设计 5.14），不碰服务器上原有的 `dsh-superagent` 实例。
+9. **node 包提交 `lib/` 产物，不带 `prepare` 脚本**。实测教训：git 依赖会执行 `prepare`，而 pnpm 要求该包在构建白名单里，否则装不上（`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`）；pnpm 11 已不再读 package.json 的 `pnpm` 字段。提交产物把构建移出安装路径。
+10. **代码是搬过来的，不是 git fork**：`dsh-foreman` 的初始提交包含从 `dsh-superagent-local` 搬来的代码（MIT，保留署名），但不携带上游 git 历史，README 写清三者关系。
 
 ---
 
-### Task 1: 建 `dsh-foreman` 仓库（两个包）并让既有测试全绿
+### Task 1: 建 `dsh-foreman` 仓库并让既有测试全绿 ✅ 已完成
 
 **Files:**
-- Create: `dsh-foreman/`（整仓复制自 `dsh-superagent-local`，排除 `node_modules`、`lib`、`.git`）
-- Create: `dsh-foreman/node/package.json`、`dsh-foreman/node/cordis.patch.yml`、`dsh-foreman/node/src/protocol.ts`
+- Create: `dsh-foreman/`（自 `dsh-superagent-local` 搬入，排除 `node_modules`、`lib`、`.git`）
+- 两个仓库已建：`github.com/niechao136/dsh-foreman`、`github.com/niechao136/dsh-foreman-node`
 - Modify: `dsh-foreman/package.json`
 - Modify: `dsh-foreman/src/index.ts:1`
 - Modify: `dsh-foreman/cordis.patch.yml:1-4`
@@ -164,9 +166,17 @@ cd dsh-foreman && git init && git add -A && git commit -m "feat: fork dsh-supera
 
 ---
 
-### Task 2: 协议帧
+### Task 2: 协议帧 ✅ 已完成
 
-**Files:**
+**实际落点（与最初设想不同）**：帧定义在 `dsh-foreman-node/src/protocol.ts`（设备仓，权威），
+hub 仓的 `src/foreman/protocol.ts` 只是转发导出。已推送两个仓库，`tests/foreman-protocol.spec.ts`
+验证跨包导入可用。
+
+**实测得到的两个约束**，后续协议改动必须遵守：
+- git 依赖装包时会跑 `prepare`，pnpm 拒绝未被构建白名单的包；因此 node 仓**提交 `lib/` 产物且不带 `prepare`**。
+- pnpm 11 不再读取 package.json 的 `pnpm` 字段，别指望在那里配构建白名单。
+
+**Files（原计划，留作参考）:**
 - Create: `dsh-foreman/src/foreman/protocol.ts`
 - Test: `dsh-foreman/tests/foreman-protocol.spec.ts`
 

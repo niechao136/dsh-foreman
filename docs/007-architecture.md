@@ -315,6 +315,8 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/foreman/ws.ts` | The only file that imports `ws`: a loopback `WebSocketServer` whose sockets become `Channel`s, refusing a non-loopback host because TLS is terminated in a tunnel |
 | `src/foreman/reports.ts` | `applyReport`, `onDisconnect`, `onTimeout` and `alignHello`: a report passes through or is dropped late, a disconnect only marks a time, a timeout reports `blocked`, and a reconnect is reconciled without ever reassigning |
 | `src/foreman/render.ts` | `renderForDevice`: the task text a device receives, finished on the hub so it carries no resource pointer and no hub path, with the attachments as bytes |
+| `src/app/views/devices.ts` | `devicesView`: the panel's device list — online, revoked, load, last seen, and project names but never a device's own path |
+| `src/client/devices.tsx` | The Devices settings group: the device list, revoking one, and rotating a token, which is shown once |
 | `src/navigation.ts` | Opens a DeepSeek Harness Session from the panel once the host's catalog lists it |
 | `src/core/model.ts` | The domain types, among them the typed Ticket and `MandateBasis`, with `threadKey`, `ticketOutcome`, `reached`, `followupOwners`, `settled`, `waitsForPerson`, `liveTicket`, `runningAssignment`, `latestAssignment` and `latestReport` |
 | `src/core/ports.ts` | The ports: `Repositories`, `Policy`, `SourceScope`, `Assessor`, `Executor`, `Outbox`, and the domain events |
@@ -473,6 +475,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/client.spec.tsx`, `tests/navigation.spec.ts`, `tests/controls.spec.tsx` | The client plugin's registration and polling, Session navigation and route memory, the local controls, and the panel's imports, which have no cycle |
 | `tests/panel-overview.spec.tsx`, `panel-source.spec.tsx`, `panel-trigger.spec.tsx`, `panel-eval.spec.tsx`, `panel-execution.spec.tsx` | Each page of the panel, against a fake management API answered by route |
 | `tests/panel-settings.spec.tsx`, `panel-prompts.spec.tsx`, `panel-deployment.spec.tsx`, `panel-panel.spec.tsx` | The settings groups, drafts and history, the prompts, the Deployment page, and the panel's search, glossary and route memory |
+| `tests/panel-devices.spec.tsx` | The devices view: which devices are online and revoked, their load, project names only and never a device path |
 | `tests/draft.spec.ts`, `tests/prompt-config.spec.ts`, `tests/markdown.spec.ts`, `tests/marks.spec.ts` | Draft states, merges and the save bar's line; the prompt configuration by section and the line diff; the Markdown subset and its links; the mark of every state the views classify |
 | `tests/locales.spec.ts`, `tests/styles.spec.ts` | The copy in both languages, the stylesheet |
 | `tests/class-docs.spec.ts` | Every class in `src` has a JSDoc block before it |

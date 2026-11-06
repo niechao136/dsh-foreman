@@ -7,7 +7,7 @@ SRC=/mnt/f/dsh/dsh-foreman
 DST=$HOME/src/dsh-foreman
 mkdir -p "$DST/tests" "$DST/src"
 rsync -a --exclude node_modules --exclude lib --exclude .git --exclude .superpowers --exclude '*.log' "$SRC/src/" "$DST/src/"
-rsync -a "$SRC/tests/" "$DST/tests/"
+rsync -a --delete "$SRC/tests/" "$DST/tests/"
 rsync -a "$SRC/docs/" "$DST/docs/"
 rsync -a "$SRC/scripts/" "$DST/scripts/"
 for f in package.json tsconfig.json vitest.config.ts tsdown.config.ts README.md; do cp "$SRC/$f" "$DST/$f"; done

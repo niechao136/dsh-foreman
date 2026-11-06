@@ -551,7 +551,18 @@ export class Runtime extends Service implements SourceHost {
       get deployment() { return setup.deployment },
       get setupProblem() { return setup.problem }, get sourceProblems() { return setup.problems },
       configured: () => setup.configured(), links: () => runtime.links(), ticketEnvironment: ticket => runtime.ticketEnvironment(ticket),
-      checkSetup: () => { setup.check() }, requestPass: () => { passes.request() }, models: () => this.ctx.sessionController.modelCatalog() }
+      checkSetup: () => { setup.check() }, requestPass: () => { passes.request() }, models: () => this.ctx.sessionController.modelCatalog(),
+      devices: () => runtime.devices.list(), onlineDevices: () => runtime.hub?.snapshot() ?? [],
+      revokeDevice: id => {
+        runtime.devices.revoke(id)
+        // Drop the connection now instead of waiting for its next heartbeat: a revoked token must stop working at once.
+        runtime.hub?.detach(id)
+      },
+      rotateDeviceToken: id => {
+        const token = runtime.devices.rotate(id)
+        runtime.hub?.detach(id)
+        return token
+      } }
   }
   /** Idempotent stop; concurrent or repeated calls share the same shutdown promise. */
   stop(): Promise<void> { return this.stopping ??= this.shutdown() }

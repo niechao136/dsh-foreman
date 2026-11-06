@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import type { StateView } from './api.ts'
 import { Dot } from './controls.tsx'
 import { DeploymentPage, type DeploymentForm } from './deployment.tsx'
+import { DevicesSettings } from './devices.tsx'
 import { EvalSettings } from './eval.tsx'
 import { LogsSettings } from './logs.tsx'
 import { ExecutionSettings } from './execution.tsx'
@@ -71,6 +72,7 @@ export function SettingsPage({ group, query, state, deploymentForm }: {
       case 'source': return <SourceSettings {...query.source ? { focus: query.source } : {}} />
       case 'eval': return <EvalSettings version={query.version} />
       case 'execution': return <ExecutionSettings />
+      case 'devices': return <DevicesSettings />
       case 'prompts': return <PromptsPage />
       case 'deployment': return <DeploymentPage setup={state.setup} form={deploymentForm} />
       case 'logs': return <LogsSettings />

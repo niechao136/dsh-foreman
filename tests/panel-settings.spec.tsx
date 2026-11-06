@@ -128,7 +128,7 @@ it('lists the settings groups stages first, opens each stage\'s group from its s
   async () => {
   await mount()
   await click(tab(zh['tab.settings']))
-  expect(all('.dt-settings-link').map(link => link.textContent)).toEqual(['来源', '评估', '执行', '提示词', '部署', '日志'])
+  expect(all('.dt-settings-link').map(link => link.textContent)).toEqual(['来源', '评估', '执行', '设备', '提示词', '部署', '日志'])
   expect(document.querySelector('.dt-settings-link[aria-current="page"]')?.textContent).toBe(zh['term.source'])
   // 来源页已删除，它的状态不再有「设置」入口；剩下评估与执行两个阶段仍从各自状态页跳过来。
   // 评估视图的设置入口在日志页头上；执行页的设置入口在执行页头上。

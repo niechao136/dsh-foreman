@@ -9,6 +9,7 @@ import type { SourceStatusView } from './views/sources.ts'
 import type { DecisionListView, SearchView, ThreadDetailView, ThreadListView } from './views/threads.ts'
 import type { LogKind, LogLevel, LogListView } from './views/logs.ts'
 import type { TicketListView } from './views/tickets.ts'
+import type { DevicesView } from './views/devices.ts'
 
 export const TICKET_FILTERS = ['open', 'person', 'working', 'idle', 'ended'] as const
 export const THREAD_FILTERS = ['subscribed', 'evaluating', 'recent', 'all'] as const
@@ -55,6 +56,10 @@ export interface Api {
   /** 部署检查卡在「状态目录里有别人的文件」时的自救入口：把该文件改名留档后重新检查。 */
   'POST setup/adopt': { body: { file: string }; response: { restarting: true } }
   'GET models': { response: ModelCatalog }
+  /** 设备注册表：在线状态与负载，只列项目名，不列设备自己的路径。 */
+  'GET devices': { response: DevicesView }
+  'POST devices/:id/revoke': { response: { revoked: true } }
+  'POST devices/:id/rotate': { response: { token: string } }
   'GET prompts': { query?: { revision?: number; offset?: number }; response: PromptsView }
   'PUT prompts': { body: { config: PromptConfig; baseRevision: number }; response: { revision: number; context_delivery: Delivery } }
   'POST prompts/preview': { body: PromptConfig; response: ReturnType<Prompts['preview']> }

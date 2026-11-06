@@ -33,6 +33,9 @@ import { sourcesStatus, type SetupState } from './views/sources.ts'
 import { decisionList, search, threadDetail, threadList } from './views/threads.ts'
 import { logList, type LogKind, type LogLevel } from './views/logs.ts'
 import { executorLoad, ticketDetail, ticketList } from './views/tickets.ts'
+import { devicesView } from './views/devices.ts'
+import type { DeviceRecord } from '../foreman/devices.ts'
+import type { Online } from '../foreman/selector.ts'
 
 export interface HttpHost {
   readonly store: Store
@@ -64,6 +67,13 @@ export interface HttpHost {
   checkSetup(): void
   requestPass(): void
   models(): Promise<ModelCatalog>
+  /** Every registered device, revoked ones included. */
+  devices(): DeviceRecord[]
+  /** The devices connected right now, with their load. */
+  onlineDevices(): Online[]
+  revokeDevice(id: string): void
+  /** Replaces a device's token and returns the new one, which is not stored in readable form anywhere. */
+  rotateDeviceToken(id: string): string
   /**
    * 写请求的凭据校验；省略时用 {@link pageCredential} 向宿主页面入口核对。
    * 单独暴露出来是为了测试能直接给定结论，而不必真的监听端口。
@@ -325,6 +335,15 @@ function routes(runtime: HttpHost): Routes {
       return { restarting: true as const }
     },
     'GET models': () => runtime.models(),
+    /** 设备注册表：谁可以接活、谁在线、各自在跑几件。设备自己的路径不外发，只列项目名。 */
+    'GET devices': () => devicesView({ devices: runtime.devices(), online: runtime.onlineDevices() }),
+    /** 吊销一台设备：登记保留（审计要看），下一次心跳就断开。 */
+    'POST devices/:id/revoke': ({ params }) => {
+      runtime.revokeDevice(decodeURIComponent(params.id!))
+      return { revoked: true }
+    },
+    /** 轮换令牌：旧令牌立刻失效，新令牌只返回这一次。 */
+    'POST devices/:id/rotate': ({ params }) => ({ token: runtime.rotateDeviceToken(decodeURIComponent(params.id!)) }),
     'GET prompts': ({ query }) => { const { revision, offset } = PromptsQuery.parse(query); return promptsView(runtime, revision, offset) },
     'PUT prompts': async input => {
       const request = z.object({ config: z.unknown(), baseRevision: z.number().int().nonnegative() }).parse(await promptBody(input))

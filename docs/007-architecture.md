@@ -434,6 +434,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/foreman-executor.spec.ts` | Local targets passed through unchanged, remote ones as one `assign` frame, `blocked` when a device is unreachable, and the same assignment never sent twice |
 | `tests/foreman-hub.spec.ts` | The hub: the hello handshake, a refused token, revocation after connecting, a version mismatch, dedupe, and sending to a device that is not connected |
 | `tests/foreman-reports.spec.ts` | Reports passed through, dropped late or as `dropped`, a disconnect that touches no Engine state, a timeout that reports `blocked`, and hello alignment |
+| `tests/foreman-render.spec.ts` | The task text a device reads: the request's own words, attachments as bytes under the frame budget, and never a hub path or an unreadable attachment id |
 | `tests/stage.spec.ts` | The Ticket stages, row by row |
 | `tests/policy.spec.ts` | Source scope, the gate, the admission table, Mandate revalidation, the Policy version, settings migrations and assessment outcomes |
 | `tests/registry.spec.ts` | `SourceRegistry`: instances, validation, Policy parts, Channels and Thread context |

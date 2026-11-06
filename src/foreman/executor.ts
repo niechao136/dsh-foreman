@@ -9,11 +9,11 @@
  * decides; it is never reported `failed` (that means the work itself failed) and never quietly run on the host
  * instead (that would put the work somewhere the request never asked for).
  */
-import type { Assignment, EngineForExecutor, Executor, Ticket } from '../core/index.ts'
+import type { Assignment, EngineForExecutor, Executor, Ticket, Trigger } from '../core/index.ts'
 import { targetOf } from '../core/model.ts'
 import type { DshExecutor } from '../executor/dsh.ts'
 import { FrameDedupe, type AssignFrame, type Frame, type InputFrame, type StopFrame } from './protocol.ts'
-import { renderForDevice } from './render.ts'
+import { renderForDevice, type Rendered } from './render.ts'
 import type { Online } from './selector.ts'
 
 /** How a frame reaches a device. The hub is the only implementation; tests supply an in-memory one. */
@@ -40,6 +40,8 @@ export interface ForemanExecutorInput {
   engine: () => ExecutorReporter
   /** Reads an attachment's bytes from the hub's store, for the ones a rendered task carries. */
   readAttachment?: (id: string) => Buffer
+  /** The Trigger a ticket came from, whose request text and attachments the device must receive. */
+  triggerOf?: (ticket: Ticket) => { trigger?: Trigger }
   /** Logs what the hub decided; a delivery that fails silently is invisible otherwise. */
   log?: (text: string) => void
 }
@@ -84,8 +86,9 @@ export class ForemanExecutor implements Executor {
       this.input.local.deliver(ticket, assignment)
       return
     }
+    const rendered = this.render(ticket)
     const frame: InputFrame = { v: 1, type: 'input', frameId: `input:${ticket.id}:${assignment.id}:${ticket.undelivered.join(',')}`,
-      assignmentId: assignment.id, text: this.render(ticket).text, attachments: this.render(ticket).attachments }
+      assignmentId: assignment.id, text: rendered.text, attachments: rendered.attachments }
     if (!this.sent.take(frame.frameId)) return
     this.enqueue(() => this.input.transport.send(target.deviceId, frame).catch(error => {
       this.input.log?.(`could not deliver inputs for ${assignment.id} to ${target.deviceId}: ${String(error)}`)
@@ -115,8 +118,9 @@ export class ForemanExecutor implements Executor {
    * The task as the device reads it. Rendered on the hub because the device has none of the hub's resources; the
    * device directory rides on the frame, not in the text.
    */
-  private render(ticket: Ticket): ReturnType<typeof renderForDevice> {
-    return renderForDevice({ ticket, readAttachment: this.input.readAttachment ?? (() => Buffer.alloc(0)) })
+  private render(ticket: Ticket): Rendered {
+    const triggerOf = this.input.triggerOf ?? (() => ({}))
+    return renderForDevice({ ticket, ...triggerOf(ticket), readAttachment: this.input.readAttachment ?? (() => Buffer.alloc(0)) })
   }
 
   /** Append work to the send chain, keeping the chain alive after a failure. */

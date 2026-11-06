@@ -183,6 +183,7 @@ export class Runtime extends Service implements SourceHost {
       // Remote work travels as frames. Until the hub is listening (initialize), sending refuses: a ticket whose
       // target could not be reached turns `blocked` instead of quietly running here.
       this.foreman = new ForemanExecutor({ local: executor, readAttachment: id => readFileSync(attachmentPath(id)),
+        triggerOf: ticket => ({ trigger: store.triggers.get(ticket.origin.triggerId) }),
         engine: () => this.engine,
         transport: { send: (deviceId, frame) => this.hub?.send(deviceId, frame)
           ?? Promise.reject(new Error(`the foreman hub is not listening, so ${deviceId} cannot be reached`)) },

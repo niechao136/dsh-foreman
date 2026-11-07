@@ -1,5 +1,10 @@
+// @vitest-environment jsdom
+// The Devices settings group: the list, and the form that registers a machine.
 import { expect, it } from 'vitest'
 import { devicesView } from '../src/app/views/devices.ts'
+import { zh } from '../src/client/locales.ts'
+import { usePanel, mount, all, click, type, text, field } from './fixtures/panel.tsx'
+import { server } from './fixtures/panel-server.ts'
 
 it('marks which devices are online and which are revoked', () => {
   const view = devicesView({ online: ['laptop'],
@@ -31,4 +36,46 @@ it('counts how many devices are online and how many are revoked', () => {
 
 it('says so when no device is registered, without failing', () => {
   expect(devicesView({ devices: [], online: [] }).rows).toEqual([])
+})
+
+usePanel()
+
+/** Opens Settings › Devices. */
+const openDevices = async () => {
+  await mount()
+  await click(zh['tab.settings'])
+  await click(all('.dt-settings-link').find(link => link.textContent === zh['settingsGroup.devices'])!)
+}
+
+it('registers a device and shows the token it cannot show again', async () => {
+  await openDevices()
+  await type(field<HTMLInputElement>(zh.devicesAddId), 'laptop')
+  await type(field<HTMLInputElement>(zh.devicesAddName), '公司笔记本')
+  await click(zh.devicesAddSubmit)
+  expect(server.addedDevices).toEqual([{ id: 'laptop', name: '公司笔记本', labels: [], roots: [] }])
+  // The token is in the page once, and the page says it will not be shown again.
+  expect(text()).toContain('a'.repeat(64))
+  expect(text()).toContain(zh.devicesAddMintedHint)
+})
+
+it('shows the hub refusal in place, naming the rotate action', async () => {
+  server.devices.rows = [{ id: 'laptop', name: 'L', labels: [], projects: [], online: false, revoked: false, running: 0 }]
+  server.devices.totals = { devices: 1, online: 0, revoked: 0, running: 0 }
+  await openDevices()
+  await type(field<HTMLInputElement>(zh.devicesAddId), 'laptop')
+  await type(field<HTMLInputElement>(zh.devicesAddName), 'L')
+  await click(zh.devicesAddSubmit)
+  expect(text()).toContain('rotate its token instead')
+  expect(server.addedDevices).toEqual([])
+})
+
+it('sends one project path per declared root', async () => {
+  await openDevices()
+  await type(field<HTMLInputElement>(zh.devicesAddId), 'laptop')
+  await type(field<HTMLInputElement>(zh.devicesAddName), 'L')
+  await click(zh.devicesAddRoot)
+  await type(field<HTMLInputElement>(zh.devicesAddProject), 'shop')
+  await type(field<HTMLInputElement>(zh.devicesAddPath), 'F:\\dsh\\shop')
+  await click(zh.devicesAddSubmit)
+  expect(server.addedDevices).toEqual([{ id: 'laptop', name: 'L', labels: [], roots: [{ project: 'shop', path: 'F:\\dsh\\shop' }] }])
 })

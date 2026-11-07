@@ -27,7 +27,10 @@
     "CHANGELOG.md",
     "README.md",
     "prompts",
-    "skills"
+    "skills",
+    "scripts/add-device.mjs",
+    "scripts/migrate.mjs",
+    "scripts/dsh-foreman"
   ],
   "dsh": {
     "bundle": {

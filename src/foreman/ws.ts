@@ -24,7 +24,10 @@ class SocketChannel implements Channel {
 
   constructor(private readonly socket: WsSocket) {
     socket.on('message', data => {
-      const text = typeof data === 'string' ? data : data.toString()
+      const text = textOf(data)
+      // A message that is not text at all (a binary frame, or an empty one) is not this protocol; dropping it beats
+      // letting a non-string reach a listener that expects one.
+      if (text === undefined) return
       if (this.messages.length === 0) { this.pending.push(text); return }
       for (const listener of this.messages) listener(text)
     })
@@ -91,6 +94,20 @@ export async function serve(input: ServeInput): Promise<Served> {
 }
 
 /**
+ * The text of one frame, or undefined when the frame carries none.
+ *
+ * `ws` hands over a string, a Buffer, an array of Buffers, or — for a binary frame this protocol never sends — a raw
+ * Buffer. Converting blindly would turn an absent payload into the literal string "undefined", which then reaches a
+ * parser as a malformed frame.
+ */
+function textOf(data: unknown): string | undefined {
+  if (typeof data === 'string') return data
+  if (Buffer.isBuffer(data)) return data.toString('utf8')
+  if (Array.isArray(data)) return Buffer.concat(data as Buffer[]).toString('utf8')
+  return undefined
+}
+
+/**
  * The device id the first frame claims, and why it is missing when it is.
  *
  * Reading it here rather than in the hub keeps `Hub` free of `ws` types without weakening the handshake: the hub
@@ -104,7 +121,8 @@ function firstFrame(socket: WsSocket): Promise<{ deviceId?: string; reason: stri
     const timer = setTimeout(() => settle({ reason: 'the connection did not open with a hello within 10 seconds' }), 10_000)
     const closed = (): void => settle({ reason: 'the connection closed before it said hello' })
     socket.once('message', data => {
-      const text = typeof data === 'string' ? data : data.toString()
+      const text = textOf(data)
+      if (text === undefined) { settle({ reason: 'the first frame carried no text' }); return }
       const deviceId = deviceIdOf(text)
       settle(deviceId === undefined ? { reason: 'the first frame must be a hello naming a device' } : { deviceId, reason: '' })
     })

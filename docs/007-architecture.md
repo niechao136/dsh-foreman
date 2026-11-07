@@ -317,7 +317,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/foreman/routing.ts` | `routeIndexOf` and `chatRouteOf`: the chat → project table as a map keyed by settings revision, so `masterOf` can stay synchronous |
 | `src/foreman/render.ts` | `renderForDevice`: the task text a device receives, finished on the hub so it carries no resource pointer and no hub path, with the attachments as bytes |
 | `src/app/views/devices.ts` | `devicesView`: the panel's device list — online, revoked, load, last seen, and project names but never a device's own path |
-| `src/client/devices.tsx` | The Devices settings group: the device list, revoking one, and rotating a token, which is shown once |
+| `src/client/devices.tsx` | The Devices settings group: registering a machine (its one-time token, shown with the values the machine needs), the device list, revoking one, and rotating a token |
 | `src/navigation.ts` | Opens a DeepSeek Harness Session from the panel once the host's catalog lists it |
 | `src/core/model.ts` | The domain types, among them the typed Ticket and `MandateBasis`, with `threadKey`, `ticketOutcome`, `reached`, `followupOwners`, `settled`, `waitsForPerson`, `liveTicket`, `runningAssignment`, `latestAssignment` and `latestReport` |
 | `src/core/ports.ts` | The ports: `Repositories`, `Policy`, `SourceScope`, `Assessor`, `Executor`, `Outbox`, and the domain events |

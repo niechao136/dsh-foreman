@@ -122,44 +122,40 @@ curl -s localhost:3100/orchestrator/api/state | head -c 200
 
 ## 7. 加第一台设备
 
-在主 loop 的仓库目录里登记设备。令牌只显示这一次，库里只存哈希：
+**全程在界面里完成，不碰命令行。**
+
+1. 主 loop 的「设置 › 设备」里填 id、显示名、它能接的项目和**那台机器上的路径**，点「登记」。
+   卡片会给出四样东西：`url`、`deviceId`、`token`，以及设备配置页的位置。
+   **令牌只显示这一次**——库里只存哈希，关掉或刷新就再也拿不回来，丢了只能换一个。
+2. 到那台设备的 DSH，「设置 › 插件 › dsh-foreman-node」打开配置页：
+   - **密钥**：下拉里是从这台机器 `~/.ssh` 列出的密钥，挑一把。没有可用的就先 `ssh-keygen`。
+   - **SSH**：勾上「走 SSH 隧道」，填枢纽机器、端口、用户。
+   - **测试连接**：点一下，认证通不通当场就知道。有口令的钥匙会明说。
+   - **枢纽**：把第 1 步的 `deviceId` 和 `token` 填进去。地址框在隧道开着时是只读的，
+     显示的是设备真正会拨的本地端口。
+   - **项目路径**：项目名 → 本机路径。
+3. 保存，**重启那台设备的 DSH**。主 loop 不用重启——设备表在数据库里，不在插件配置里。
+
+设备的隧道由插件自己拉起，断了会自动重连，所以**不需要再手开 `ssh -L`**。
+
+界面不在时（比如 headless 服务器），同样的操作可以用脚本完成：
 
 ```bash
 cd /home/ubuntu/src/dsh-foreman
 export DSH_HOME=/home/ubuntu/.dsh-loop
-
-node scripts/add-device.mjs add --home "$DSH_HOME" \
-  --id laptop --name 公司笔记本 --label intranet \
-  --root shop='D:\工作\shop'
+node scripts/add-device.mjs add --home "$DSH_HOME" --id laptop --name 公司笔记本 --label intranet --root shop='D:\工作\shop'
 ```
 
-它打印一截 JSON，`token` 那个值就是设备要用的令牌。把 `url`、`deviceId`、`token` 和**同一份 `roots`**
-写进那台设备 profile 的 `dsh-foreman-node` 配置：
+其他命令：`list`（谁登记了）、`rotate`（换令牌，旧的立刻失效）、`revoke`（吊销，下一次心跳就断）。
 
-```yaml
-- id: dsh-foreman-node
-  config:
-    url: wss://foreman.example.com   # 隧道后面那个稳定域名
-    deviceId: laptop
-    token: <上面打印的 token>
-    roots:
-      - project: shop
-        path: 'D:\工作\shop'          # 设备自己的绝对路径，按原样写
-```
+### 为什么设备要走隧道
 
-重启那台设备的 DSH 即可，**主 loop 不用重启**——设备表在同一个数据库里，不在插件配置里。
+`hubPort` 只监听 `127.0.0.1`，这是故意的：账本是唯一值得保护的东西，把端口开到公网等于
+只靠一枚令牌挡着它。所以别的机器要连它，就得在中间架一条 SSH 隧道——现在这条隧道由设备
+自己开，配置页里填完就有。
 
-其他命令：
-
-```bash
-node scripts/add-device.mjs list   --home "$DSH_HOME"   # 谁登记了、是否已吊销（不打印哈希）
-node scripts/add-device.mjs rotate --home "$DSH_HOME" --id laptop   # 换令牌，旧的立刻失效
-node scripts/add-device.mjs revoke --home "$DSH_HOME" --id laptop   # 吊销，下一次心跳就断
-```
-
-吊销与换令牌也可以在面板的「设置 › 设备」里点。
-
----
+如果枢纽本来就在公网可达（前面有 cloudflared 之类），把隧道关掉、地址填 `wss://` 域名即可，
+那时候 `url` 才参与连接。
 
 ## 8. 飞书：一个机器人，群即项目
 

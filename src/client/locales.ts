@@ -525,7 +525,7 @@ const TEXT = {
   devicesAddProject: ['项目名', 'Project'],
   devicesAddPath: ['那台机器上的路径', 'Path on that machine'],
   devicesAddSubmit: ['登记', 'Register'],
-  devicesAddMinted: ['把这四样填进那台设备的配置页', 'Put these four values on that machine\'s configuration page'],
+  devicesAddMinted: ['把这四样填进那台设备的配置页', 'Put these values on that machine\'s configuration page'],
   devicesAddMintedHint: ['令牌只显示这一次，库里只存哈希。关掉或刷新这一页就再也拿不回来了；丢了只能换一个。',
     'The token is shown once; only its hash is stored. Closing or refreshing this page loses it for good, and the only way back is a new one.'],
   deviceOnline: ['在线', 'Online'],

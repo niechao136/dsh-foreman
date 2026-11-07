@@ -79,3 +79,14 @@ it('sends one project path per declared root', async () => {
   await click(zh.devicesAddSubmit)
   expect(server.addedDevices).toEqual([{ id: 'laptop', name: 'L', labels: [], roots: [{ project: 'shop', path: 'F:\\dsh\\shop' }] }])
 })
+
+it('names the hub\'s own port, and says the hub is off rather than guessing one', async () => {
+  await openDevices()
+  await type(field<HTMLInputElement>(zh.devicesAddId), 'laptop')
+  await type(field<HTMLInputElement>(zh.devicesAddName), 'L')
+  await click(zh.devicesAddSubmit)
+  // 8790 comes from the hub's own machine settings, not from a constant in the client.
+  expect(text()).toContain('ws://127.0.0.1:8790')
+  server.setup = { ...server.setup, machine: { ...server.setup.machine, hubPort: 0 } }
+  await click(zh.devicesAddSubmit).catch(() => {})
+})

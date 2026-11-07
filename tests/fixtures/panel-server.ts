@@ -82,7 +82,7 @@ export const problemOf = (code: SetupCode, values: Record<string, string> = {}) 
 // The kinds' configurations differ, and the fake reads them only as the records the views carry.
 const KINDS = [feishuKind, githubKind] as unknown as SourceKind[]
 export const MACHINE = { stateDir: '/srv/dsh-foreman', promptMaxChars: 100000, admissionContextMaxPages: 10,
-  admissionContextTimeoutMs: 15000 }
+  admissionContextTimeoutMs: 15000, hubPort: 8790 }
 
 type Settings = ReturnType<typeof SettingsSchema.parse>
 export interface PanelServer {

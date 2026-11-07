@@ -82,6 +82,8 @@ interface RootDraft { project: string; path: string }
  */
 function AddDevice({ onAdded }: { onAdded: () => void }) {
   const { t, call } = usePanel()
+  // The hub's own port, so the card names an address that is actually listening; 0 means the hub is off.
+  const { data: state } = usePoll(() => call('GET state'), [])
   const [id, setId] = useState('')
   const [name, setName] = useState('')
   const [roots, setRoots] = useState<RootDraft[]>([])
@@ -101,6 +103,7 @@ function AddDevice({ onAdded }: { onAdded: () => void }) {
   const edit = (index: number, patch: Partial<RootDraft>) => {
     setRoots(current => current.map((root, at) => at === index ? { ...root, ...patch } : root))
   }
+  const hubPort = state?.setup.machine.hubPort ?? 0
   return <>
     <Card title={t('devicesAdd')} hint={t('devicesAddHint')}>
       <FieldGrid>
@@ -131,12 +134,22 @@ function AddDevice({ onAdded }: { onAdded: () => void }) {
     {/* 令牌只在这里出现一次：库里只有哈希，刷新就没了。 */}
     {minted && <Card title={t('devicesAddMinted')} tone="warn">
       <Hint>{t('devicesAddMintedHint')}</Hint>
-      <KeyValues rows={[
-        ['url', `ws://127.0.0.1:8790`],
-        ['deviceId', minted.id],
-        ['token', minted.token],
-      ]} />
+      <KeyValues rows={mintedRows(minted, hubPort)} />
       <code className="dt-mono" data-device-token>{minted.token}</code>
     </Card>}
   </>
+}
+
+/**
+ * The rows a device needs, with the hub's real port.
+ *
+ * A hub with `hubPort: 0` has its listener switched off, so no address a card could print would work; saying so is
+ * more use than a plausible-looking port that nothing listens on.
+ */
+function mintedRows(minted: { id: string; token: string }, hubPort: number): [string, string][] {
+  return [
+    ['url', hubPort > 0 ? `ws://127.0.0.1:${hubPort}` : 'the hub is off: set hubPort in the plugin configuration'],
+    ['deviceId', minted.id],
+    ['token', minted.token],
+  ]
 }

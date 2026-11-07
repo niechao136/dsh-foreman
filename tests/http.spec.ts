@@ -174,3 +174,12 @@ it('refuses a device registration with no id or no name', async () => {
   expect((await call('POST', 'devices', { name: 'L', roots: [] })).status).toBe(400)
   expect((await call('POST', 'devices', { id: 'laptop', roots: [] })).status).toBe(400)
 })
+
+it('answers a store failure as a server fault, not as the operator\'s mistake', async () => {
+  // A duplicate id is the caller's to fix and says so. A store failure is not: its text can name the state directory,
+  // which is exactly what `failure()` withholds behind an opaque id.
+  const call = serve({ addDevice: () => { throw new Error('SQLITE_BUSY: /srv/dsh-foreman/state/orchestrator.sqlite is locked') } })
+  const response = await call('POST', 'devices', { id: 'laptop', name: 'L', roots: [] })
+  expect(response.status).toBe(500)
+  expect(JSON.stringify(response.body)).not.toContain('/srv/dsh-foreman')
+})

@@ -87,6 +87,11 @@ export interface HttpHost {
  * Route handlers throw it when request bodies are malformed or target records are missing, and registerHttp serializes its status and message in the HTTP response.
  */
 class RouteError extends Error { constructor(readonly status: 400 | 404, message: string) { super(message) } }
+
+/** Whether a registration failed because the id is taken, the only failure that is the caller's to fix. */
+function isDuplicateDevice(error: unknown): boolean {
+  return error instanceof Error && /is already registered/.test(error.message)
+}
 async function readBody(req: IncomingMessage, maxBytes = 128 * 1024): Promise<unknown> {
   let size = 0; const chunks: Buffer[] = []
   for await (const chunk of req) {
@@ -190,9 +195,11 @@ function failure(error: unknown, internal: (id: string, error: unknown) => void)
   return [500, { code: 'internal-error', id }]
 }
 
-function machineView({ stateDir, promptMaxChars, admissionContextMaxPages, admissionContextTimeoutMs }: Machine) {
+function machineView({ stateDir, promptMaxChars, admissionContextMaxPages, admissionContextTimeoutMs, hubPort }: Machine) {
+  // `hubPort` is published because the device card has to name the address a device dials, and 0 means the hub is off:
+  // a page that guessed a port would hand an operator an address nothing is listening on.
   return { stateDir, promptMaxChars: promptMaxChars.get(), admissionContextMaxPages: admissionContextMaxPages.get(),
-    admissionContextTimeoutMs: admissionContextTimeoutMs.get() }
+    admissionContextTimeoutMs: admissionContextTimeoutMs.get(), hubPort }
 }
 /** Every setup problem the panel shows: global first, then the ones that pause a single Source, each with that Source's title. */
 function setupProblems(runtime: HttpHost) {
@@ -344,10 +351,14 @@ function routes(runtime: HttpHost): Routes {
       const body = z.object({ id: z.string().trim().min(1), name: z.string().trim().min(1),
         labels: z.array(z.string().trim().min(1)).optional(),
         roots: z.array(z.object({ project: z.string().trim().min(1), path: z.string().trim().min(1) })) }).parse(await input.body())
-      // `Devices.add` throws a plain Error for a duplicate id, which `failure()` would turn into a 500.
-      // A duplicate is the operator's mistake, so it is reported as a 400 with the message naming rotate.
+      // A duplicate id is the operator's mistake, so it is reported as a 400 naming rotate. Anything else — a store
+      // or lock failure — is a server fault whose text may name the state directory, so it is left to `failure()`,
+      // which answers 500 with an opaque id and keeps the detail in the log.
       try { return runtime.addDevice(body) }
-      catch (error) { throw new RouteError(400, error instanceof Error ? error.message : String(error)) }
+      catch (error) {
+        if (isDuplicateDevice(error)) throw new RouteError(400, (error as Error).message)
+        throw error
+      }
     },
     /** 吊销一台设备：登记保留（审计要看），下一次心跳就断开。 */
     'POST devices/:id/revoke': ({ params }) => {

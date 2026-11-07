@@ -58,6 +58,9 @@ export interface Api {
   'GET models': { response: ModelCatalog }
   /** 设备注册表：在线状态与负载，只列项目名，不列设备自己的路径。 */
   'GET devices': { response: DevicesView }
+  /** 登记一台新设备；令牌只在这里返回一次，库里只存哈希。 */
+  'POST devices': { body: { id: string; name: string; labels?: string[]; roots: { project: string; path: string }[] };
+    response: { id: string; token: string } }
   'POST devices/:id/revoke': { response: { revoked: true } }
   'POST devices/:id/rotate': { response: { token: string } }
   'GET prompts': { query?: { revision?: number; offset?: number }; response: PromptsView }

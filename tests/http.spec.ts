@@ -151,3 +151,26 @@ it('moves a foreign worker file aside and checks setup again', async () => {
     expect(refused.status).toBe(400)
   } finally { rmSync(stateDir, { recursive: true, force: true }) }
 })
+
+it('registers a device and returns its token exactly once', async () => {
+  const added: unknown[] = []
+  const call = serve({ addDevice: (input: unknown) => { added.push(input); return { id: 'laptop', token: 'deadbeef' } } })
+  const response = await call('POST', 'devices', { id: 'laptop', name: '笔记本',
+    labels: ['intranet'], roots: [{ project: 'shop', path: 'F:\\\\dsh\\\\shop' }] })
+  expect(response.status).toBe(200)
+  expect(response.body).toEqual({ id: 'laptop', token: 'deadbeef' })
+  expect(added).toEqual([{ id: 'laptop', name: '笔记本', labels: ['intranet'], roots: [{ project: 'shop', path: 'F:\\\\dsh\\\\shop' }] }])
+})
+
+it('refuses a device whose id is already registered, naming the rotate action', async () => {
+  const call = serve({ addDevice: () => { throw new Error('a device with id laptop is already registered; rotate its token instead') } })
+  const response = await call('POST', 'devices', { id: 'laptop', name: 'L', roots: [] })
+  expect(response.status).toBe(400)
+  expect(String(response.body.error)).toContain('rotate its token instead')
+})
+
+it('refuses a device registration with no id or no name', async () => {
+  const call = serve({ addDevice: () => { throw new Error('unreachable: the body is rejected first') } })
+  expect((await call('POST', 'devices', { name: 'L', roots: [] })).status).toBe(400)
+  expect((await call('POST', 'devices', { id: 'laptop', roots: [] })).status).toBe(400)
+})

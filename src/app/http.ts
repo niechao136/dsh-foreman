@@ -34,7 +34,7 @@ import { decisionList, search, threadDetail, threadList } from './views/threads.
 import { logList, type LogKind, type LogLevel } from './views/logs.ts'
 import { executorLoad, ticketDetail, ticketList } from './views/tickets.ts'
 import { devicesView } from './views/devices.ts'
-import type { DeviceRecord } from '../foreman/devices.ts'
+import type { DeviceInput, DeviceRecord } from '../foreman/devices.ts'
 import type { Online } from '../foreman/selector.ts'
 
 export interface HttpHost {
@@ -71,6 +71,8 @@ export interface HttpHost {
   devices(): DeviceRecord[]
   /** The devices connected right now, with their load. */
   onlineDevices(): Online[]
+  /** Register a device and mint its token; the token is not stored in readable form anywhere. */
+  addDevice(input: DeviceInput): { id: string; token: string }
   revokeDevice(id: string): void
   /** Replaces a device's token and returns the new one, which is not stored in readable form anywhere. */
   rotateDeviceToken(id: string): string
@@ -337,6 +339,16 @@ function routes(runtime: HttpHost): Routes {
     'GET models': () => runtime.models(),
     /** 设备注册表：谁可以接活、谁在线、各自在跑几件。设备自己的路径不外发，只列项目名。 */
     'GET devices': () => devicesView({ devices: runtime.devices(), online: runtime.onlineDevices() }),
+    /** 登记一台新设备。令牌只在这一次响应里出现，刷新就没了。 */
+    'POST devices': async input => {
+      const body = z.object({ id: z.string().trim().min(1), name: z.string().trim().min(1),
+        labels: z.array(z.string().trim().min(1)).optional(),
+        roots: z.array(z.object({ project: z.string().trim().min(1), path: z.string().trim().min(1) })) }).parse(await input.body())
+      // `Devices.add` throws a plain Error for a duplicate id, which `failure()` would turn into a 500.
+      // A duplicate is the operator's mistake, so it is reported as a 400 with the message naming rotate.
+      try { return runtime.addDevice(body) }
+      catch (error) { throw new RouteError(400, error instanceof Error ? error.message : String(error)) }
+    },
     /** 吊销一台设备：登记保留（审计要看），下一次心跳就断开。 */
     'POST devices/:id/revoke': ({ params }) => {
       runtime.revokeDevice(decodeURIComponent(params.id!))

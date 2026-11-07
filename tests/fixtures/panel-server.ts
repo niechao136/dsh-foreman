@@ -92,6 +92,8 @@ export interface PanelServer {
   prompts: PromptsView
   /** The device list, as `GET /devices` answers it. */
   devices: DevicesView
+  /** Devices the panel registered through `POST devices`, so a test can assert what it sent. */
+  addedDevices: { id: string; name: string; roots: { project: string; path: string }[] }[]
   tickets: { open: TicketRow[]; ended: TicketRow[] }; ticketDetails: Record<string, TicketPageView>
   threads: ThreadRow[]
   threadPages: (key: string, query: { before?: string; around?: string }) => ThreadPageView | undefined
@@ -269,6 +271,8 @@ function initial(): PanelServer {
         name: 'Widgets Bot' } } },
     settings, revisions: { policy: 3, eval: 1, executor: 0 },
     devices: { rows: [], totals: { devices: 0, online: 0, revoked: 0, running: 0 } },
+    /** Devices the panel registered through `POST devices`, so a test can assert what it sent. */
+    addedDevices: [],
     prompts: { masterId: 'master', sections: TEAM_SECTIONS, skillName: SKILL_NAME.source, builtin: ['feishu', 'github'],
       skillPrefix: SKILL_PREFIX, revision: 0, current: { ...defaults, config: defaultPrompts() },
       defaults: defaultPrompts(), parts: Object.entries(builtInParts()).map(([key, part]) => ({ key, ...part, base: builtInBase(part.text) })),
@@ -411,6 +415,15 @@ const ROUTES: { [K in keyof Api]: Route<K> } = {
     groups: [{ id: 'worker-provider', name: 'Worker provider', models: [{ id: 'worker-model', name: 'Worker model',
       reasoning: { efforts: [{ id: 'high', name: 'High' }] } }] }] }) },
   'GET devices': { answer: () => server.devices },
+  'POST devices': { body: true, answer: ({ body }) => {
+    const input = body as { id: string; name: string; roots: { project: string; path: string }[] }
+    if (server.devices.rows.some(row => row.id === input.id)) {
+      return refuse(400, `a device with id ${input.id} is already registered; rotate its token instead`)
+    }
+    server.addedDevices.push(input)
+    server.devices.rows = [...server.devices.rows, { id: input.id, name: input.name, labels: [], projects: input.roots.map(root => root.project),
+      online: false, revoked: false, running: 0 }]
+    return { id: input.id, token: 'a'.repeat(64) } } },
   'POST devices/:id/revoke': { answer: () => ({ revoked: true }) },
   'POST devices/:id/rotate': { answer: () => ({ token: 'rotated-token' }) },
   'GET prompts': { query: ['revision', 'offset'], answer: () => server.prompts },

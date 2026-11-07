@@ -689,6 +689,8 @@ export class Runtime extends Service implements SourceHost {
       configured: () => setup.configured(), links: () => runtime.links(), ticketEnvironment: ticket => runtime.ticketEnvironment(ticket),
       checkSetup: () => { setup.check() }, requestPass: () => { passes.request() }, models: () => this.ctx.sessionController.modelCatalog(),
       devices: () => runtime.devices.list(), onlineDevices: () => runtime.hub?.snapshot() ?? [],
+      /** 登记一台设备并铸一枚令牌；和 `scripts/add-device.mjs` 走同一个 `Devices.add`。 */
+      addDevice: input => { const { device, token } = runtime.devices.add(input); return { id: device.id, token } },
       revokeDevice: id => {
         runtime.devices.revoke(id)
         // Drop the connection now instead of waiting for its next heartbeat: a revoked token must stop working at once.

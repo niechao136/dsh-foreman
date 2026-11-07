@@ -1,6 +1,6 @@
 # 交接文档（HANDOFF）
 
-> 更新时间：2026-11-07 07:22
+> 更新时间：2026-11-07 08:55
 > 下次接手时，**先读这一页**，再读 `docs/superpowers/specs/` 和 `docs/superpowers/plans/`。
 
 ---
@@ -59,7 +59,12 @@ hub 仓 `master` = `0d0661a`，node 仓 `master` = `b79e44d`。
 
 ## 二点五、发布了没有
 
-**发布了。`0.1.0`，npm + GitHub Release 都有。**
+**发布了 `0.1.0` 和 `0.1.1`。`0.1.1` 是真机验证后修掉两个打包/健壮性问题的版本，用它。**
+
+| 版本 | 为什么要它 |
+| --- | --- |
+| `0.1.1` | **用这个。** 补上 `scripts/`（`0.1.0` 漏了，导致加设备的命令不存在）+ 帧无正文时的握手加固 |
+| `0.1.0` | 首个发布，有上面两个问题 |
 
 | 位置 | 地址 |
 | --- | --- |
@@ -95,6 +100,28 @@ https://www.npmjs.com/ 上手动操作（`npm unpublish <pkg>@0.0.0-stage`），
 
 **已做的替代处理**：两个占位版本都标了 deprecation，`npm install <pkg>` 会打出警告并指向 `0.1.0`；
 `latest` 本来就是 `0.1.0`，所以正常安装拿不到占位版本。
+
+### 真机验证：上海服务器 srv-02 --- 已跑通
+
+不是纸面验收，是在 Ubuntu 24.04 上真装的：
+
+| 项 | 结果 |
+| --- | --- |
+| Node 24.9 + `@deepseek-ai/dsh@0.2.2-rc.1` | 装好，`dsh --version` 正常 |
+| `dsh plugin --profile loop add dsh-foreman@0.1.1` | 从 npm 装成功，**只引入 8 个包** |
+| `--dump-config` 里 `dsh-foreman-node` 出现次数 | **0 次** —— 设备包的 patch 行没有被连带激活，这是设计里一直未实测的那条验收标准，**现在通过了** |
+| 面板 3100 + hub 8790 | 都起来 |
+| hub 握手 | 错误令牌 -> `error` 帧拒绝；正确令牌 -> 保持连接 |
+| 设备登记 | `lastSeenAt` 被写入库 |
+| `scripts/add-device.mjs add/rotate` | 都可用（`0.1.1` 才有） |
+
+`dev-ops-mcp` 三个容器**只停未删**（`docker compose stop`，可逆），释放约 190 MB，
+现在可用内存约 890 MB。仓库 `/github/dev-ops-mcp` 与 `data/` 都还在。
+
+**还没跑的**：需要真实模型的端到端闭环（人说话 -> 评估接单 -> 派给设备 -> 设备调
+`foreman_report` 回 `ready`）。本地那个 `router` provider 只暴露 `GET /router/api/*`
+管理接口（`/v1/chat/completions` 返回 405），不是可直接外部调用的 OpenAI 兼容端点，
+所以没能在服务器上复用本地模型配置。
 
 ### 发版时踩到的坑（下次照做）
 

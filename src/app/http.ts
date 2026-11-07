@@ -74,6 +74,10 @@ export interface HttpHost {
   /** Register a device and mint its token; the token is not stored in readable form anywhere. */
   addDevice(input: DeviceInput): { id: string; token: string }
   revokeDevice(id: string): void
+  /** Remove a device outright, revoked or not. */
+  deleteDevice(id: string): void
+  /** Change a device's name, labels or roots without touching its id or token. */
+  updateDevice(id: string, change: { name?: string; labels?: string[]; roots?: { project: string; path: string }[] }): void
   /** Replaces a device's token and returns the new one, which is not stored in readable form anywhere. */
   rotateDeviceToken(id: string): string
   /**
@@ -364,6 +368,20 @@ function routes(runtime: HttpHost): Routes {
     'POST devices/:id/revoke': ({ params }) => {
       runtime.revokeDevice(decodeURIComponent(params.id!))
       return { revoked: true }
+    },
+    /** 删掉一台设备。和吊销不同：吊销留着记录，删除连记录一起去掉。 */
+    'DELETE devices/:id': ({ params }) => {
+      runtime.deleteDevice(decodeURIComponent(params.id!))
+      return { deleted: true as const }
+    },
+    /** 改一台设备的名字、标签或项目；id 与令牌不动，所以那台设备不用重新配置。 */
+    'PUT devices/:id': async ({ params, body: readBody }) => {
+      const body = z.object({ name: z.string().trim().min(1).optional(),
+        labels: z.array(z.string().trim().min(1)).optional(),
+        roots: z.array(z.object({ project: z.string().trim().min(1), path: z.string().trim().min(1) })).optional() }).parse(await readBody())
+      try { runtime.updateDevice(decodeURIComponent(params.id!), body) }
+      catch (error) { throw new RouteError(400, error instanceof Error ? error.message : String(error)) }
+      return { updated: true as const }
     },
     /** 轮换令牌：旧令牌立刻失效，新令牌只返回这一次。 */
     'POST devices/:id/rotate': ({ params }) => ({ token: runtime.rotateDeviceToken(decodeURIComponent(params.id!)) }),

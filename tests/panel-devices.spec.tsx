@@ -90,3 +90,31 @@ it('names the hub\'s own port, and says the hub is off rather than guessing one'
   server.setup = { ...server.setup, machine: { ...server.setup.machine, hubPort: 0 } }
   await click(zh.devicesAddSubmit).catch(() => {})
 })
+
+it('edits a device\'s projects from the list, which is what lets it take work', async () => {
+  server.devices.rows = [{ id: 'pc', name: '宿舍', labels: [], projects: [], online: false, revoked: false, running: 0 }]
+  server.devices.totals = { devices: 1, online: 0, revoked: 0, running: 0 }
+  await openDevices()
+  await click(zh.deviceEdit)
+  // A device with no projects starts with no rows: the first press of "add a project" is what creates one.
+  // Both the registration form and this one have a button with that label, so the edit one is addressed by attribute.
+  const addRoot = all('[data-edit-root]')[0]
+  if (!addRoot) throw new Error('no add-project button in the edit card')
+  await click(addRoot)
+  await type(field<HTMLInputElement>(`${zh.devicesAddProject} 1`), 'dsh-foreman')
+  await type(field<HTMLInputElement>(`${zh.devicesAddPath} 1`), 'F:\\dsh')
+  await click(zh.save)
+  expect(server.requests.find(request => request.path === 'devices/pc' && request.method === 'PUT')?.body)
+    .toMatchObject({ roots: [{ project: 'dsh-foreman', path: 'F:\\dsh' }] })
+})
+
+it('deletes a device only after a second press, because deleting loses the record', async () => {
+  server.devices.rows = [{ id: 'pc', name: '宿舍', labels: [], projects: [], online: false, revoked: false, running: 0 }]
+  server.devices.totals = { devices: 1, online: 0, revoked: 0, running: 0 }
+  await openDevices()
+  await click(zh.deviceDelete)
+  // The first press only arms it: nothing has been deleted yet.
+  expect(server.requests.some(request => request.method === 'DELETE')).toBe(false)
+  await click(zh.deviceDeleteConfirm)
+  expect(server.requests.find(request => request.method === 'DELETE')?.path).toBe('devices/pc')
+})

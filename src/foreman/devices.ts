@@ -98,6 +98,39 @@ export class Devices {
     this.store.set(KV.foreman.device(id), { ...device, revokedAt: new Date().toISOString() })
   }
 
+  /**
+   * Delete a device outright, revoked or not.
+   *
+   * Revoking keeps the record for the audit trail; deleting is for the mistake — a device registered under the wrong
+   * id, or one that will never come back — that an operator does not want cluttering the list forever. The two are
+   * deliberately separate actions: revoke is the safe one, delete is the one that loses the history.
+   *
+   * @throws When the device is unknown, so a typo is reported rather than silently removing nothing.
+   */
+  delete(id: string): void {
+    this.require(id)
+    this.store.delete(KV.foreman.device(id))
+  }
+
+  /**
+   * Replace what a device offers: its display name, its labels, and the projects it can work on.
+   *
+   * The id and the token are not touched: an id is what the device's own configuration already says, and rotating a
+   * token is a separate decision with its own effect (the device must be given the new one). A handshake in flight
+   * keeps using the record it read, which is why the hub drops the connection after a change.
+   *
+   * @throws When the device is unknown.
+   */
+  update(id: string, change: { name?: string; labels?: string[]; roots?: Root[] }): DeviceRecord {
+    const device = this.require(id)
+    const next: DeviceRecord = { ...device }
+    if (change.name !== undefined) next.name = change.name
+    if (change.labels !== undefined) next.labels = [...change.labels]
+    if (change.roots !== undefined) next.roots = change.roots.map(root => ({ ...root }))
+    this.store.set(KV.foreman.device(id), next)
+    return next
+  }
+
   /** Whether a token is this device's and the device is still allowed to connect; `false` for an unknown or revoked id. */
   verify(id: string, token: string): boolean {
     const device = this.get(id)

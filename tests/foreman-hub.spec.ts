@@ -179,3 +179,46 @@ it('lists no device as online before it said hello', async () => {
   hub.attach('laptop', a)
   expect(hub.online()).toEqual([])
 })
+
+/**
+ * Two clients using one device id.
+ *
+ * A device reconnects before the hub has noticed the old socket died, so a fresh connection routinely arrives while
+ * an established one is still registered. Evicting on arrival made each reconnect kill the other and neither ever
+ * finished its handshake: on a real deployment the device stayed offline forever while both sides retried, and every
+ * assignment silently fell back to running on the host.
+ */
+it('lets a second connection under the same id take over only once it has verified', async () => {
+  const hub = new Hub({ devices: devices(() => true), onFrame: vi.fn() })
+  let firstClosed = false
+  const first = memoryChannel()
+  hub.attach('laptop', { ...first.a, close: () => { firstClosed = true } })
+  first.b.send(JSON.stringify(hello('laptop', 'tok')))
+  await vi.waitFor(() => expect(hub.online()).toEqual(['laptop']))
+
+  // A second connection arrives and says nothing yet: it must not disturb the working one.
+  const second = memoryChannel()
+  hub.attach('laptop', second.a)
+  expect(hub.online()).toEqual(['laptop'])
+  expect(firstClosed).toBe(false)
+
+  // Once it proves its token, it takes over and the old one is retired.
+  second.b.send(JSON.stringify(hello('laptop', 'tok', { frameId: 'h2' })))
+  await vi.waitFor(() => expect(firstClosed).toBe(true))
+  expect(hub.online()).toEqual(['laptop'])
+})
+
+it('does not let a connection with a bad token evict the working one', async () => {
+  const hub = new Hub({ devices: devices((_id, token) => token === 'good'), onFrame: vi.fn() })
+  const first = memoryChannel()
+  hub.attach('laptop', first.a)
+  first.b.send(JSON.stringify(hello('laptop', 'good')))
+  await vi.waitFor(() => expect(hub.online()).toEqual(['laptop']))
+
+  const impostor = memoryChannel()
+  hub.attach('laptop', impostor.a)
+  impostor.b.send(JSON.stringify(hello('laptop', 'bad', { frameId: 'i1' })))
+  await settle()
+  // The real device keeps working: a refused connection never owned the id.
+  expect(hub.online()).toEqual(['laptop'])
+})

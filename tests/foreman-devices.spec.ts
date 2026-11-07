@@ -66,3 +66,43 @@ it('keeps each device under the foreman family, one record per id', () => {
   expect(store.keys(KV.foreman.device.prefix)).toEqual([KV.foreman.device('laptop')])
   expect(store.get(KV.foreman.device('laptop'))!.labels).toEqual(['intranet'])
 })
+
+it('deletes a device outright, so a wrong registration does not stay forever', () => {
+  // Revoking keeps the record for the audit trail. Deleting is for the mistake — a device registered under the wrong
+  // id — and an operator needs both.
+  const devices = open()
+  devices.add({ id: 'typo', name: 'Typo', roots: [] })
+  devices.revoke('typo')
+  devices.delete('typo')
+  expect(devices.get('typo')).toBeUndefined()
+  expect(devices.list().map(device => device.id)).not.toContain('typo')
+})
+
+it('refuses to delete a device that is not there, so a typo is reported', () => {
+  expect(() => open().delete('nope')).toThrow(/no device with id nope/)
+})
+
+it('changes a device\'s projects without touching its id or token', () => {
+  // This is what lets a device take work for a project it was first registered without.
+  const devices = open()
+  const { token } = devices.add({ id: 'pc', name: '宿舍', labels: [], roots: [] })
+  const before = devices.get('pc')!.tokenHash
+  devices.update('pc', { name: '宿舍电脑', roots: [{ project: 'dsh-foreman', path: 'F:\\dsh' }] })
+  const after = devices.get('pc')!
+  expect(after.roots).toEqual([{ project: 'dsh-foreman', path: 'F:\\dsh' }])
+  expect(after.name).toBe('宿舍电脑')
+  // The token still works: changing what a device offers must not force it to be re-provisioned.
+  expect(after.tokenHash).toBe(before)
+  expect(devices.verify('pc', token)).toBe(true)
+})
+
+it('leaves fields the update did not mention alone', () => {
+  const devices = open()
+  devices.add({ id: 'pc', name: '宿舍', labels: ['intranet'], roots: [{ project: 'a', path: '/a' }] })
+  devices.update('pc', { name: '改名' })
+  expect(devices.get('pc')).toMatchObject({ name: '改名', labels: ['intranet'], roots: [{ project: 'a', path: '/a' }] })
+})
+
+it('refuses to update a device that is not there', () => {
+  expect(() => open().update('nope', { name: 'x' })).toThrow(/no device with id nope/)
+})

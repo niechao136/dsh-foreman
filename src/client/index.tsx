@@ -112,10 +112,15 @@ function installMainSessionEntry(ctx: ClientContext, t: T): () => void {
     return key.startsWith('workspace:') ? key.slice('workspace:'.length) : undefined
   }
   /**
-   * 插件自己建的会话：`worker-`（每张工单的执行者）与 `orchestrator-`（主会话与评估）。
-   * 它们的生命周期由我们管，不该再占侧栏一行 —— 人要进主会话，用行上的 M 气泡。
+   * 插件自己建的会话里，只有主会话被藏起来。
+   *
+   * `orchestrator-` 是主会话本身，人用行上的 M 气泡进，侧栏再列一行就是重复。
+   *
+   * `worker-` 以前也藏，理由是「数量会多」。但那让人失去唯一的线索：任务到底在哪台机器、哪个目录里跑。
+   * 一张工单派到别的设备时，设备上那条会话就是答案，而它恰恰被藏掉了。现在保留显示：多一行，
+   * 换来看得见工作发生的地方。
    */
-  const ours = (id: string): boolean => id.startsWith('worker-') || id.startsWith('orchestrator-')
+  const ours = (id: string): boolean => id.startsWith('orchestrator-')
   const rowId = (row: Element): string => (row.getAttribute('data-row-key') ?? '').replace(/^session:/, '')
   /**
    * 收起插件自己的会话行，以及状态目录那一个伪工作区行。
@@ -125,6 +130,8 @@ function installMainSessionEntry(ctx: ClientContext, t: T): () => void {
    */
   const hideOwn = () => {
     for (const row of document.querySelectorAll<HTMLElement>('[data-row-key^="session:"]')) {
+      // Worker Sessions are deliberately NOT hidden: they are where the work actually happens, and hiding them left
+      // a person unable to find the Session a dispatched ticket ran in.
       if (!ours(rowId(row))) continue
       if (row.style.display !== 'none') row.style.display = 'none'
     }

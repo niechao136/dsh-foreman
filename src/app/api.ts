@@ -62,6 +62,11 @@ export interface Api {
   'POST devices': { body: { id: string; name: string; labels?: string[]; roots: { project: string; path: string }[] };
     response: { id: string; token: string } }
   'POST devices/:id/revoke': { response: { revoked: true } }
+  /** 彻底删掉一台设备（吊销只是留着记录，删除是连记录一起去掉）。 */
+  'DELETE devices/:id': { response: { deleted: true } }
+  /** 改一台设备的显示名、标签或它能接的项目；id 与令牌不动。 */
+  'PUT devices/:id': { body: { name?: string; labels?: string[]; roots?: { project: string; path: string }[] };
+    response: { updated: true } }
   'POST devices/:id/rotate': { response: { token: string } }
   'GET prompts': { query?: { revision?: number; offset?: number }; response: PromptsView }
   'PUT prompts': { body: { config: PromptConfig; baseRevision: number }; response: { revision: number; context_delivery: Delivery } }

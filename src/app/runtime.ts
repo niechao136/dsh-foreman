@@ -700,6 +700,16 @@ export class Runtime extends Service implements SourceHost {
         const token = runtime.devices.rotate(id)
         runtime.hub?.detach(id)
         return token
+      },
+      deleteDevice: id => {
+        // Drop the connection first: a deleted record must not keep a live socket that still receives frames.
+        runtime.hub?.detach(id)
+        runtime.devices.delete(id)
+      },
+      updateDevice: (id, change) => {
+        runtime.devices.update(id, change)
+        // The device declared its old roots in its hello; dropping it makes it reconnect and re-declare them.
+        runtime.hub?.detach(id)
       } }
   }
   /** Idempotent stop; concurrent or repeated calls share the same shutdown promise. */

@@ -64,6 +64,19 @@ export function prepareTicketWithForeman(input: PrepareInput) {
       const labels = input.labelsOf?.(trigger)
       if (labels !== undefined && labels.length > 0) request.labels = labels
       const target = select(request, input.devices(), input.online())
+      // A request that named a machine, or that a chat confined to certain machines, must run there. Falling back to
+      // the host would run it somewhere the person did not ask for — on one real ticket, a query about a laptop's
+      // project ran in an empty directory on the server and looked successful. Such a ticket is left without a target
+      // and reported `blocked` by the caller, which is a visible "nobody could take this" instead of a silent lie.
+      const mustBeRemote = request.device !== undefined || (request.labels !== undefined && request.labels.length > 0)
+      if (target === undefined && mustBeRemote) {
+        const asked = request.device !== undefined ? `device "${request.device}"` : 'a restricted machine'
+        const blockedReason = `no online device can take this: it asked for ${asked}`
+          + ` on project "${request.project}"; nothing was run`
+        // Recorded on the ticket rather than thrown: the accept still happened, and the executor turns this into a
+        // `blocked` report a person sees. Throwing here would abort `Tickets.create` and lose the ticket entirely.
+        return { ...ticket, blockedReason }
+      }
       // `target` is written before `local` runs so the local prepare sees the final ticket; `local` returns a new
       // object (it spreads the ticket), so the target has to be set on what it returns when it drops it.
       const prepared = input.local({ ...ticket, ...(target === undefined ? {} : { target }) }, outcome)

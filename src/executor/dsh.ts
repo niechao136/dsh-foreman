@@ -318,6 +318,12 @@ export class DshExecutor implements Executor {
     const ticket = this.host.store.tickets.get(ticketId)
     const assignment = ticket && latestAssignment(ticket)
     if (!ticket || !liveTicket(ticket) || assignment?.id !== assignmentId || assignment.state !== 'pending') return
+    // A ticket that required a machine none could take stops here, before any Session exists. Reporting it `blocked`
+    // is what puts it in front of a person; running it on the host would answer a question nobody asked.
+    if (ticket.blockedReason !== undefined) {
+      this.host.engine.report(ticketId, { state: 'blocked', summary: ticket.blockedReason })
+      return
+    }
     this.slots.reserve(ticketId, 'launch')
     try { await this.launch(ticket, assignment); this.transient.delete(`launch:${assignmentId}`) }
     catch (error) {

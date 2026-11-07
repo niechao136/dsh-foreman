@@ -314,6 +314,14 @@ export interface Ticket {
    * It lives on the Ticket because `newAssignment` never sees the accept outcome that made the choice.
    */
   target?: AssignmentTarget
+  /**
+   * Why this ticket cannot start, when its acceptance required a machine and none could take it.
+   *
+   * Set instead of throwing: the request is real and worth recording, but running it on the host would answer a
+   * different question than the one asked. The executor reports it `blocked` without starting a Session, so it
+   * reaches a person as a visible failure rather than a silent success somewhere else.
+   */
+  blockedReason?: string
   inputs: TicketInput[]
   /** Inputs not yet handed to a running assignment. */
   undelivered: string[]

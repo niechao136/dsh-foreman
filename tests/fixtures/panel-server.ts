@@ -425,6 +425,19 @@ const ROUTES: { [K in keyof Api]: Route<K> } = {
       online: false, revoked: false, running: 0 }]
     return { id: input.id, token: 'a'.repeat(64) } } },
   'POST devices/:id/revoke': { answer: () => ({ revoked: true }) },
+  'DELETE devices/:id': { answer: ({ params }) => {
+    server.devices.rows = server.devices.rows.filter(row => row.id !== params.id)
+    server.devices.totals = { ...server.devices.totals, devices: server.devices.rows.length }
+    return { deleted: true as const }
+  } },
+  'PUT devices/:id': { body: true, answer: ({ params, body }) => {
+    const change = body as { name?: string; labels?: string[]; roots?: { project: string; path: string }[] }
+    server.devices.rows = server.devices.rows.map(row => row.id === params.id
+      ? { ...row, ...(change.name === undefined ? {} : { name: change.name }),
+        ...(change.roots === undefined ? {} : { projects: change.roots.map(root => root.project) }) }
+      : row)
+    return { updated: true as const }
+  } },
   'POST devices/:id/rotate': { answer: () => ({ token: 'rotated-token' }) },
   'GET prompts': { query: ['revision', 'offset'], answer: () => server.prompts },
   'PUT prompts': { body: true, answer: ({ body }) => {

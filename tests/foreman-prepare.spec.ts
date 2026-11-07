@@ -63,3 +63,26 @@ it('prefers the workspace a trigger records over the routing table', () => {
     workspaceOf: () => '/w/other', local: subject => subject })
   expect(prepare(ticket, outcome).target?.directory).toBe('/laptop/shop')
 })
+
+/**
+ * A request that named a machine, when no such machine can take it.
+ *
+ * The shipped behaviour was to prepare the ticket for the host instead. On a real ticket ("look at the projects on
+ * my laptop") that ran a worker Session in an empty directory on the server and reported success — the person got an
+ * answer to a question nobody asked, and no sign that their machine was never touched.
+ */
+it('records why it could not run when the request named a device that is not available', () => {
+  // Nothing is online, and the accept named "pc": preparing this for the host would run it somewhere it was not asked.
+  const prepared = build('/w/shop', { online: () => [] })(ticket, { ...outcome, device: 'pc' })
+  expect(prepared.target).toBeUndefined()
+  expect(prepared.blockedReason).toMatch(/no online device can take this/)
+  expect(prepared.blockedReason).toMatch(/device "pc"/)
+})
+
+it('still runs on the host when nothing named a device and no device reaches the project', () => {
+  // This fallback stays: a project the host itself can reach should not stall because a laptop is offline, and no
+  // machine was named — the host is a legitimate answer to "do this work".
+  const prepared = build('/w/other')(ticket, outcome)
+  expect(prepared.blockedReason).toBeUndefined()
+  expect(prepared.target).toBeUndefined()
+})

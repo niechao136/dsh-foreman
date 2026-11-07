@@ -98,6 +98,8 @@ export interface HubInput {
  */
 export class Hub {
   private readonly connections = new Map<string, Connection>()
+  /** Connections that have arrived but not yet verified: parked so they cannot disturb an established one. */
+  private readonly pending = new Map<Channel, { deviceId: string; connection: Connection }>()
   private readonly devices: HubDevices
   private readonly onFrame: (deviceId: string, frame: Frame) => void
   private readonly log: (text: string) => void
@@ -110,17 +112,33 @@ export class Hub {
     this.now = input.now ?? (() => new Date().toISOString())
   }
 
-  /** Register a connection under the device id the transport says it belongs to; it is a claim until `hello`. */
+  /**
+   * Register a connection under the device id the transport says it belongs to; it is a claim until `hello`.
+   *
+   * A new connection does NOT evict an established one here. Evicting on arrival let two clients using the same id
+   * close each other in a loop — each reconnect killed the other's socket, neither ever finished its handshake, and
+   * the device stayed offline forever while both kept retrying. Instead a fresh connection waits in `pending` until
+   * its `hello` verifies, and only then replaces whoever held the id (`admit`). A half-finished connection therefore
+   * cannot disturb a working one, while a genuine reconnect still takes over once it has proved itself.
+   */
   attach(deviceId: string, channel: Channel): void {
-    // A device reconnecting replaces its old connection: the old socket is dead even if its close has not arrived.
-    this.connections.get(deviceId)?.channel.close()
     const connection: Connection = { channel, handshook: false, running: [], lastSeenAt: this.now(), dedupe: new FrameDedupe(new Set()) }
-    this.connections.set(deviceId, connection)
+    // The claim is parked until the token is verified; a second connection under the same id simply waits its turn.
+    this.pending.set(channel, { deviceId, connection })
     channel.onMessage(text => this.receive(deviceId, connection, text))
     channel.onClose(() => {
+      this.pending.delete(channel)
       // Only forget it when this is still the current connection: a reconnect already replaced it.
       if (this.connections.get(deviceId) === connection) this.connections.delete(deviceId)
     })
+  }
+
+  /** Promote a verified connection to be the one the id answers to, replacing whatever held it. */
+  private admit(deviceId: string, connection: Connection): void {
+    const previous = this.connections.get(deviceId)
+    if (previous !== undefined && previous !== connection) previous.channel.close()
+    this.connections.set(deviceId, connection)
+    this.pending.delete(connection.channel)
   }
 
   /** Drop a device's connection and stop listing it as online. */
@@ -165,6 +183,8 @@ export class Hub {
 
   /** Close every device connection, used at shutdown so in-flight work fails fast instead of hanging. */
   closeAll(): void {
+    for (const [, parked] of [...this.pending]) parked.connection.channel.close()
+    this.pending.clear()
     for (const [id, connection] of [...this.connections]) {
       this.connections.delete(id)
       connection.channel.close()
@@ -227,6 +247,8 @@ export class Hub {
     connection.running = [...frame.running]
     connection.runningCount = connection.running.length
     connection.lastSeenAt = this.now()
+    // Verified: this connection now owns the id, and any earlier one is retired.
+    this.admit(deviceId, connection)
     this.devices.seen(deviceId, connection.lastSeenAt)
     this.onFrame(deviceId, frame)
   }
@@ -237,6 +259,8 @@ export class Hub {
       connection.channel.send(encodeFrame({ v: FOREMAN_PROTOCOL_VERSION, type: 'error', frameId: `error:${this.now()}`, reason }))
     } catch { /* A dead channel cannot be told why; closing it is what matters. */ }
     this.log(`foreman hub refused a device: ${reason}`)
+    // A refused connection never owned the id, so it is only forgotten from the parked set.
+    this.pending.delete(connection.channel)
     connection.channel.close()
     for (const [id, current] of this.connections) if (current === connection) this.connections.delete(id)
   }

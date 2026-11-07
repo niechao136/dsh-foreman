@@ -309,7 +309,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/foreman/protocol.ts` | Re-exports the frame definitions from the `dsh-foreman-node` package, which owns the only copy, so the hub and a device cannot drift |
 | `src/foreman/devices.ts` | `Devices` and `DeviceRecord`: the registry of machines that may take work, its tokens kept only as SHA-256, and its `foreman-device:` family in `KV` |
 | `src/foreman/selector.ts` | `selectDevice`, the pure rule that picks a device at accept: revoked and offline and root-less devices drop out, an explicit name or required label narrows, the least busy wins, a tie goes to the freshest heartbeat |
-| `src/foreman/prepare.ts` | `prepareTicketWithForeman` and `projectOf`: the `prepareTicket` seam that writes the chosen target onto a Ticket before its Assignment exists |
+| `src/foreman/prepare.ts` | `prepareTicketWithForeman` and `projectOf`: the `prepareTicket` seam that writes the chosen target onto a Ticket before its Assignment exists, and records a `blockedReason` instead of running on the host when the request named a machine none could take |
 | `src/foreman/executor.ts` | `ForemanExecutor`, the Executor that passes a local target through to `DshExecutor` and turns a remote one into frames, reporting `blocked` rather than `failed` when a device cannot be reached |
 | `src/foreman/hub.ts` | `Hub` and `Channel`: connection state per device, the token handshake, frame dedupe, revocation on the next frame, and `memoryChannel` for tests; no `ws`, no ledger writes |
 | `src/foreman/ws.ts` | The only file that imports `ws`: a loopback `WebSocketServer` whose sockets become `Channel`s, refusing a non-loopback host because TLS is terminated in a tunnel |

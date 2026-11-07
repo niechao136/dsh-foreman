@@ -1,6 +1,6 @@
 # 交接文档（HANDOFF）
 
-> 更新时间：2026-11-07 08:55
+> 更新时间：2026-11-07 09:55
 > 下次接手时，**先读这一页**，再读 `docs/superpowers/specs/` 和 `docs/superpowers/plans/`。
 
 ---
@@ -118,10 +118,37 @@ https://www.npmjs.com/ 上手动操作（`npm unpublish <pkg>@0.0.0-stage`），
 `dev-ops-mcp` 三个容器**只停未删**（`docker compose stop`，可逆），释放约 190 MB，
 现在可用内存约 890 MB。仓库 `/github/dev-ops-mcp` 与 `data/` 都还在。
 
-**还没跑的**：需要真实模型的端到端闭环（人说话 -> 评估接单 -> 派给设备 -> 设备调
-`foreman_report` 回 `ready`）。本地那个 `router` provider 只暴露 `GET /router/api/*`
-管理接口（`/v1/chat/completions` 返回 405），不是可直接外部调用的 OpenAI 兼容端点，
-所以没能在服务器上复用本地模型配置。
+**模型已经跑通（复制凭据，和新加坡那台一样）**。srv-02 上 `router/deepseek-flash`
+真实调用成功，`/router/api/last-hit` 记录：
+
+```
+supplier: traework, model: traework/deepseek-v4.1-flash,
+uid: 350090467488811, credits: 141.978, ok: true
+```
+
+复制的是桌面端的 `credentials.sqlite` + `supplier-config.json` + `combos.json`
+（不是标准 API key，是那套供应商池），`600` 权限、属主 root，中转文件已删。
+
+### 迁移模型时踩到的三个坑（下次照做）
+
+1. **`combos.json` 里不能留上下文窗口为空的供应商。**
+   组合的 `contextWindow` 取「所有成员里最小的」，而 `comboContextWindow()` 只要有一个成员的
+   `context_length` 是 `undefined` 就整体返回 `undefined`，于是 DSH 报
+   `no context capacity for router/deepseek-flash`，整个模型切换失败。
+   本地的组合里有 `nvidia,deepseek-ai/deepseek-v4.1-flash`，它的模型目录**没有** `context_length`
+   —— 把这一条从组合里删掉就好了（只禁用供应商不够，组合里还留着它）。
+2. **组合和供应商模型是启动时加载进内存的**（`loadCombos()` 只跑一次），改 `combos.json` 必须重启。
+3. **供应商模型缓存是懒加载的**，`comboContextWindow` 只读缓存、不填缓存。
+   重启后先访问一遍 `/router/api/suppliers/<id>/models` 预热，否则第一次切换仍会拿到 `undefined`。
+
+### 访问方式：dsh-remote，不开放端口
+
+和新加坡 3082 一样，**只监听 `127.0.0.1`**，由本机 SSH 隧道搬回来。
+`~/.ssh/config` 里已经写好两台（`srv-02-shanghai`、`srv-01-singapore`），用 ed25519 密钥；
+公钥已装进两台机器的 `authorized_keys`。桌面端：设置 → 远程工作区 → **刷新** → 选机器 →
+**「远程 DSH 界面」→ 连接并打开**。
+
+⚠️ 带 `token` 的那个地址不要外发（一次性凭据，会换成 30 天 cookie）。
 
 ### 发版时踩到的坑（下次照做）
 

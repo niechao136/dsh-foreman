@@ -6,11 +6,11 @@
       name: dsh-foreman
     - id: dsh-foreman-github
       name: dsh-foreman/github-watch
-    # 椋炰功 IM 鏉ユ簮锛氱兢娑堟伅涓庣鑱婅繘宸ュ崟銆傛病鏈夐厤缃満鍣ㄤ汉 CLI 鏃跺畠鑷繁鎶ャ€屾湭璁剧疆鏈哄櫒浜?CLI銆嶏紝
-    # 涓嶅奖鍝嶅埆鐨勬潵婧愶紝鎵€浠ラ粯璁ゅ紑鐫€锛岃浜鸿兘鐩存帴鍦ㄨ缃噷濉€?
+    # 飞书 IM 来源：群消息与私聊进工单。没有配置机器人 CLI 时它自己报「未设置机器人 CLI」，
+    # 不影响别的来源，所以默认开着，让人能直接在设置里填。
     - id: dsh-foreman-feishu
       name: dsh-foreman/feishu-watch
-    # 鏈湴 Source锛氭妸鎿嶄綔鑰呭湪涓讳細璇濋噷璇寸殑璇濆綋浣滈渶姹傛潵婧愶紱涓€涓疄渚嬭鐩栨墍鏈夊伐浣滃尯銆?
+    # 本地 Source：把操作者在主会话里说的话当作需求来源；一个实例覆盖所有工作区。
     - id: dsh-foreman-dsh
       name: dsh-foreman/local-watch
     # The agent preset of every Executor Session (WORKER_PRESET in src/app/sessions.ts); the main Session has its own, below.
@@ -24,8 +24,8 @@
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: dsh-foreman-worker
-        name: dsh-foreman 鎵ц鍣?
-        description: dsh-foreman 鐨勬墽琛屽櫒 Session 涓撶敤锛屼笉渚涙墜鍔ㄩ€夋嫨銆傚墠鍙板懡浠よ秴 5 绉掕浆鍏ュ悗鍙帮紝鍙惈鎵ц宸ヤ綔鎵€闇€鐨勫伐鍏枫€?
+        name: dsh-foreman 执行器
+        description: dsh-foreman 的执行器 Session 专用，不供手动选择。前台命令超 5 秒转入后台，只含执行工作所需的工具。
         order: 90
         plugins:
           - id: persona
@@ -129,8 +129,8 @@
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: dsh-foreman-router
-        name: dsh-foreman 涓?Session
-        description: dsh-foreman 鐨勪富 Session 涓撶敤锛屼笉渚涙墜鍔ㄩ€夋嫨銆傚墠鍙板懡浠ゅ拰浠诲姟绛夊緟瓒?5 绉掕浆鍏ュ悗鍙帮紝鍙惈璺敱鎵€闇€鐨勫伐鍏枫€?
+        name: dsh-foreman 主 Session
+        description: dsh-foreman 的主 Session 专用，不供手动选择。前台命令和任务等待超 5 秒转入后台，只含路由所需的工具。
         order: 91
         plugins:
           - id: agent-instructions

@@ -85,3 +85,11 @@ it('keeps a media type the hub knows so the device can render an image inline', 
   const [attachment] = renderForDevice({ ticket, trigger: withFile, readAttachment: () => Buffer.from('png') }).attachments
   expect(attachment).toEqual({ id: 'img12345', name: 'shot.png', mediaType: 'image/png', bytes: Buffer.from('png').toString('base64') })
 })
+
+it('tells the device it has to report, because answering in chat reaches nobody', () => {
+  // A real device worked thirty steps and never called foreman_report, so the hub waited at `running` forever.
+  // The instruction has to travel with the assignment; nothing else tells the model that reporting is required.
+  const { text } = renderForDevice({ ticket, trigger, readAttachment: () => Buffer.from('') })
+  expect(text).toContain('foreman_report')
+  expect(text).toMatch(/not finished until you/i)
+})

@@ -83,6 +83,21 @@ function attachmentSection(names: readonly string[]): string {
  *
  * @throws When the attachments together exceed the frame budget: a truncated task would be worse than a refused one.
  */
+/**
+ * What a device is told about reporting, appended to every assignment.
+ *
+ * Without it the job Session simply answers and stops: on a real deployment a device did thirty steps of real work,
+ * wrote a complete answer, and never called `foreman_report`, so the hub sat at `running` with no report forever and
+ * a person saw a job that never finished. The tool exists, but nothing told the model it was required or final.
+ */
+const REPORT_SECTION = [
+  '\n## Reporting back\n',
+  '\nWhen you have finished, call `foreman_report` — that tool is how this job reaches the person who asked, and ',
+  'answering in chat does not reach them. Report `ready` with a one-sentence summary of the result, or `blocked` with ',
+  'the one question only they can answer, or `failed` if the work cannot be done. The job is not finished until you ',
+  'have reported.\n',
+].join('')
+
 export function renderForDevice(input: RenderInput): Rendered {
   const { ticket, trigger } = input
   const refs = refsOf(trigger)
@@ -101,7 +116,7 @@ export function renderForDevice(input: RenderInput): Rendered {
   const scope = scopeOf(ticket)
   const request = trigger?.text?.trim() ?? ''
   const sections = [`# ${ticket.title}`, scope === '' ? '' : `\n${scope}\n`, request === '' ? '' : `\n## The request as it was written\n\n${request}\n`,
-    attachmentSection(attachments.map(attachment => attachment.name ?? attachment.id))]
+    attachmentSection(attachments.map(attachment => attachment.name ?? attachment.id)), REPORT_SECTION]
   return { text: sections.filter(section => section !== '').join(''), attachments }
 }
 

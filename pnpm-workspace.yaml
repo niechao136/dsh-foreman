@@ -1,0 +1,8 @@
+# pnpm 11 refuses any dependency published in the last 24 hours (a supply-chain guard). That is the right default,
+# but it also blocks this project's own freshly published device package, which the hub pins by exact version and
+# releases in lockstep with. Only that one name is exempted; everything else keeps the guard.
+packages:
+  - .
+
+minimumReleaseAgeExclude:
+  - dsh-foreman-node@0.3.0

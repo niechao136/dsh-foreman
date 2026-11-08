@@ -61,6 +61,8 @@ export interface HubDevices {
   get(id: string): DeviceRecord | undefined
   seen(id: string, at: string): void
   list(): DeviceRecord[]
+  /** Records what a device declares, for the empty record a fresh registration leaves behind. */
+  update(id: string, change: { roots?: { project: string; path: string }[] }): DeviceRecord
 }
 
 /** What the hub keeps for one connected device, all of it in memory: a restart re-aligns from each device's hello. */
@@ -247,6 +249,12 @@ export class Hub {
     connection.running = [...frame.running]
     connection.runningCount = connection.running.length
     connection.lastSeenAt = this.now()
+    // A record with no projects takes the ones this device declares. Without writing them back, the check above would
+    // keep passing on an empty record forever, and the ledger would still believe the device can reach nothing — so
+    // no ticket could ever be dispatched to it.
+    if ((this.devices.get(deviceId)?.roots.length ?? 0) === 0 && frame.roots.length > 0) {
+      this.devices.update(deviceId, { roots: frame.roots.map(root => ({ project: root.project, path: root.path })) })
+    }
     // Verified: this connection now owns the id, and any earlier one is retired.
     this.admit(deviceId, connection)
     this.devices.seen(deviceId, connection.lastSeenAt)
@@ -288,6 +296,10 @@ function countOf(reported: unknown): number {
  */
 function rootsMismatch(registered: readonly Root[], declared: readonly Root[]): string | undefined {
   if (declared.length === 0) return undefined
+  // An empty record is not a contradiction to reject: a device registered without projects yet declares them in its
+  // first hello, and that is how it becomes usable. It is still not silently accepted as an authority — `adoptRoots`
+  // copies the declaration into the record, so the next handshake is checked against it and a later drift is caught.
+  if (registered.length === 0) return undefined
   const known = new Map(registered.map(root => [root.project, root.path]))
   for (const root of declared) {
     const path = known.get(root.project)

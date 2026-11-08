@@ -186,10 +186,12 @@ function EditDevice({ row, onClose, onSaved }: { row: DeviceRow; onClose: () => 
   const save = async () => {
     setBusy(true); setRefusal(undefined)
     try {
+      // A path is sent only when one was typed. A project carried over from `row.projects` never had one to show —
+      // the panel does not receive device paths — so an empty box means "keep what is stored", not "clear it".
+      // Sending `[]` here once wiped a device's roots on every save and left it unable to reconnect.
       await call('PUT devices/:id', { id: row.id, body: { name: name.trim(), labels: labels.split(',').map(label => label.trim()).filter(Boolean),
-        // A path left blank keeps whatever the registry already has, which the page never learns.
-        roots: roots.filter(root => root.project.trim() && root.path.trim())
-          .map(root => ({ project: root.project.trim(), path: root.path.trim() })) } })
+        roots: roots.filter(root => root.project.trim()).map(root => ({ project: root.project.trim(),
+          ...root.path.trim() === '' ? {} : { path: root.path.trim() } })) } })
       onSaved(); onClose()
     } catch (error) { setRefusal(errorText(error)) } finally { setBusy(false) }
   }
@@ -209,7 +211,7 @@ function EditDevice({ row, onClose, onSaved }: { row: DeviceRow; onClose: () => 
         <Field label={`${t('devicesAddProject')} ${index + 1}`}>
           <Input value={root.project} onChange={event => edit(index, { project: event.target.value })} />
         </Field>
-        <Field label={`${t('devicesAddPath')} ${index + 1}`}>
+        <Field label={`${t('devicesAddPath')} ${index + 1}`} note={root.path === '' ? t('devicePathKeep') : undefined}>
           <Input value={root.path} onChange={event => edit(index, { path: event.target.value })} placeholder={t('devicePathKeep')} />
         </Field>
       </Fragment>)}

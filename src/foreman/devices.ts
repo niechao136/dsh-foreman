@@ -116,17 +116,30 @@ export class Devices {
    * Replace what a device offers: its display name, its labels, and the projects it can work on.
    *
    * The id and the token are not touched: an id is what the device's own configuration already says, and rotating a
-   * token is a separate decision with its own effect (the device must be given the new one). A handshake in flight
-   * keeps using the record it read, which is why the hub drops the connection after a change.
+   * token is a separate decision with its own effect (the device must be given the new one).
    *
-   * @throws When the device is unknown.
+   * **A project named without a path keeps the path already stored.** The panel deliberately never learns a device's
+   * paths — it is shared over a tunnel, and a path is a map of that machine's disk — so an edit arrives as names only.
+   * Treating a missing path as "clear it" is what once wiped a device's roots on every save and left it unable to
+   * connect at all. A new project still needs a path, because there is nothing to keep.
+   *
+   * @throws When the device is unknown, or a new project arrives without a path.
    */
-  update(id: string, change: { name?: string; labels?: string[]; roots?: Root[] }): DeviceRecord {
+  update(id: string, change: { name?: string; labels?: string[]; roots?: { project: string; path?: string }[] }): DeviceRecord {
     const device = this.require(id)
     const next: DeviceRecord = { ...device }
     if (change.name !== undefined) next.name = change.name
     if (change.labels !== undefined) next.labels = [...change.labels]
-    if (change.roots !== undefined) next.roots = change.roots.map(root => ({ ...root }))
+    if (change.roots !== undefined) {
+      const stored = new Map(device.roots.map(root => [root.project, root.path]))
+      next.roots = change.roots.map(root => {
+        const path = root.path?.trim() || stored.get(root.project)
+        if (path === undefined || path === '') {
+          throw new Error(`project ${root.project} is new, so it needs the path it lives at on ${id}`)
+        }
+        return { project: root.project, path }
+      })
+    }
     this.store.set(KV.foreman.device(id), next)
     return next
   }

@@ -106,3 +106,25 @@ it('leaves fields the update did not mention alone', () => {
 it('refuses to update a device that is not there', () => {
   expect(() => open().update('nope', { name: 'x' })).toThrow(/no device with id nope/)
 })
+
+it('keeps a stored path when an edit names the project but sends no path', () => {
+  // The panel never learns device paths, so an edit arrives as names. Treating a missing path as "clear it" wiped the
+  // roots on every save, and the device could then never reconnect: its hello no longer matched the record.
+  const devices = open()
+  devices.add({ id: 'pc', name: '宿舍', labels: [], roots: [{ project: 'shop', path: 'F:\\shop' }] })
+  devices.update('pc', { roots: [{ project: 'shop' }] })
+  expect(devices.get('pc')!.roots).toEqual([{ project: 'shop', path: 'F:\\shop' }])
+})
+
+it('keeps the stored paths of the projects an edit does not mention losing, and adds a new one with its path', () => {
+  const devices = open()
+  devices.add({ id: 'pc', name: '宿舍', labels: [], roots: [{ project: 'shop', path: 'F:\\shop' }] })
+  devices.update('pc', { roots: [{ project: 'shop' }, { project: 'docs', path: 'F:\\docs' }] })
+  expect(devices.get('pc')!.roots).toEqual([{ project: 'shop', path: 'F:\\shop' }, { project: 'docs', path: 'F:\\docs' }])
+})
+
+it('refuses a new project that carries no path, because there is nothing to keep', () => {
+  const devices = open()
+  devices.add({ id: 'pc', name: '宿舍', labels: [], roots: [] })
+  expect(() => devices.update('pc', { roots: [{ project: 'docs' }] })).toThrow(/needs the path/)
+})

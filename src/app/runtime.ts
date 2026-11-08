@@ -720,9 +720,12 @@ export class Runtime extends Service implements SourceHost {
         runtime.devices.delete(id)
       },
       updateDevice: (id, change) => {
+        const before = runtime.devices.get(id)?.roots.map(root => `${root.project}=${root.path}`).join('|')
         runtime.devices.update(id, change)
-        // The device declared its old roots in its hello; dropping it makes it reconnect and re-declare them.
-        runtime.hub?.detach(id)
+        const after = runtime.devices.get(id)?.roots.map(root => `${root.project}=${root.path}`).join('|')
+        // Only a change to what the device offers needs it to reconnect and re-declare itself. Renaming a device or
+        // editing its labels used to drop the connection too, which showed as the device going offline for no reason.
+        if (before !== after) runtime.hub?.detach(id)
       } }
   }
   /** Idempotent stop; concurrent or repeated calls share the same shutdown promise. */

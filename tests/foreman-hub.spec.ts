@@ -136,9 +136,11 @@ it('refuses a device whose declared roots disagree with its registry record', as
 })
 
 it('refuses a device that declares a project its registry record lacks', async () => {
+  // A record WITH roots is the authority; a declaration that adds a project to it is refused. An empty record is the
+  // separate case below: there it is the device's own first declaration that fills it.
   const sent: string[] = []
-  const registry = { verify: () => true, get: () => ({ id: 'laptop', name: 'L', labels: [], tokenHash: 'h', roots: [] }),
-    seen: vi.fn(), list: () => [] }
+  const registry = { verify: () => true, get: () => ({ id: 'laptop', name: 'L', labels: [], tokenHash: 'h',
+    roots: [{ project: 'other', path: '/w/other' }] }), seen: vi.fn(), list: () => [] }
   const hub = new Hub({ devices: registry as never, onFrame: vi.fn() })
   const { a, b } = memoryChannel()
   hub.attach('laptop', { ...a, send: text => { sent.push(text) } })
@@ -221,4 +223,27 @@ it('does not let a connection with a bad token evict the working one', async () 
   await settle()
   // The real device keeps working: a refused connection never owned the id.
   expect(hub.online()).toEqual(['laptop'])
+})
+
+it('admits a device whose registry record has no roots, and records the ones it declares', async () => {
+  // A wiped record leaves no roots to compare against, and refusing every reconnect there stranded the device
+  // permanently. The declaration is accepted AND written back, so the ledger learns what the device can reach.
+  const update = vi.fn()
+  const hub = new Hub({ devices: { verify: () => true, update,
+    get: () => ({ id: 'pc', name: 'P', labels: [], roots: [], tokenHash: 'h' }),
+    seen: vi.fn(), list: () => [] } as never, onFrame: vi.fn() })
+  const { a, b } = memoryChannel()
+  hub.attach('pc', a)
+  b.send(JSON.stringify(hello('pc', 'tok', { roots: [{ project: 'shop', path: 'F:\\shop' }] })))
+  await vi.waitFor(() => expect(hub.online()).toEqual(['pc']))
+})
+
+it('still refuses a declared root that contradicts a registered one', async () => {
+  const hub = new Hub({ devices: { verify: () => true,
+    get: () => ({ id: 'pc', name: 'P', labels: [], roots: [{ project: 'shop', path: 'F:\\shop' }], tokenHash: 'h' }),
+    seen: vi.fn(), list: () => [] } as never, onFrame: vi.fn() })
+  const { a, b } = memoryChannel()
+  hub.attach('pc', a)
+  b.send(JSON.stringify(hello('pc', 'tok', { roots: [{ project: 'shop', path: 'D:\\other' }] })))
+  await vi.waitFor(() => expect(hub.online()).toEqual([]))
 })

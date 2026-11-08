@@ -92,3 +92,29 @@ it('treats a device that no longer runs an assignment as needing a decision', ()
 it('stops nothing and attaches nothing when one side is empty', () => {
   expect(alignHello({ running: [], known: [] })).toEqual({ attach: [], stop: [] })
 })
+
+it('relays a device report to the main Session, the same way a local worker does', () => {
+  // A device report used to stop at the ledger: the ticket showed `ready` while the Session that dispatched it was
+  // never told, so it neither relayed the result to the person nor carried on. A local worker's report calls
+  // `reportRelay`; a remote one had no equivalent.
+  const relayed: string[] = []
+  const apply = applyReport({ report: () => undefined, ticketOf: () => ({ ticketId: 'tk1', open: true }),
+    relay: ticketId => { relayed.push(ticketId) }, log: () => {} })
+  apply('a1', { v: 1, type: 'report', frameId: 'f1', assignmentId: 'a1', state: 'ready', summary: 'done' } as never)
+  expect(relayed).toEqual(['tk1'])
+})
+
+it('does not relay a report it refuses', () => {
+  // A late report for an ended ticket is dropped, so relaying it would wake the Session about work it must not resume.
+  const relayed: string[] = []
+  const apply = applyReport({ report: () => undefined, ticketOf: () => ({ ticketId: 'tk1', open: false }),
+    relay: ticketId => { relayed.push(ticketId) }, log: () => {} })
+  apply('a1', { v: 1, type: 'report', frameId: 'f2', assignmentId: 'a1', state: 'ready', summary: 'late' } as never)
+  expect(relayed).toEqual([])
+})
+
+it('keeps working when the relay itself fails, because the report is already recorded', () => {
+  const apply = applyReport({ report: () => undefined, ticketOf: () => ({ ticketId: 'tk1', open: true }),
+    relay: () => { throw new Error('session gone') }, log: () => {} })
+  expect(() => apply('a1', { v: 1, type: 'report', frameId: 'f3', assignmentId: 'a1', state: 'ready', summary: 'x' } as never)).not.toThrow()
+})

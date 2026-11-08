@@ -13,7 +13,7 @@ import type {} from '@deepseek-ai/dsh-subprocess'
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { lockSync } from 'proper-lockfile'
-import { Engine, key, reasonText, type EngineForSettings, type ReceiveResult, type Ticket, type Trigger } from '../core/index.ts'
+import { Engine, key, latestAssignment, reasonText, type EngineForSettings, type ReceiveResult, type Ticket, type Trigger } from '../core/index.ts'
 import { allowedSender, settingsPolicy } from '../policy.ts'
 import { SourceRegistry } from '../sources/registry.ts'
 import { Commands } from '../infra/commands.ts'
@@ -32,7 +32,7 @@ import { Prompts } from './prompts.ts'
 import { registerHttp, type HttpHost } from './http.ts'
 import type { LinkTarget } from './views/records.ts'
 import { candidateCard, repliedTo, sourceLink, type LinkHost } from './links.ts'
-import { eventNotice, followupNotice } from './notices.ts'
+import { eventNotice, followupNotice, reportRelay } from './notices.ts'
 import { pullEndNotices } from '../sources/github-pull.ts'
 import { HealthBoard } from '../infra/health.ts'
 import { Outbox } from './outbox.ts'
@@ -231,7 +231,18 @@ export class Runtime extends Service implements SourceHost {
       // What a device reports becomes an Engine call; the hub itself never writes the ledger. A late or impossible
       // report is logged and dropped rather than thrown, so a finished ticket cannot be revived by it.
       this.applyReport = applyReport({ report: (ticketId, workerReport) => { engine.report(ticketId, workerReport) },
-        ticketOf: assignmentId => assignmentWhere(store, assignmentId), log: text => ctx.logger.warn('dsh-foreman: %s', text) })
+        ticketOf: assignmentId => assignmentWhere(store, assignmentId),
+        // Same seam a local worker's report uses: build the relay, then steer it to the Session that owns the ticket.
+        relay: ticketId => {
+          const ticket = store.tickets.get(ticketId)
+          if (ticket === undefined) return
+          const assignment = latestAssignment(ticket)
+          const report = assignment?.report
+          if (report === undefined) return
+          const relay = reportRelay(ticket, report)
+          if (relay !== undefined) sessions.relay(relay.id, relay.text, this.masterOf(store.triggers.get(ticket.origin.triggerId)))
+        },
+        log: text => ctx.logger.warn('dsh-foreman: %s', text) })
       // Update the `evals` health entry on every pass if an evaluation failed as unavailable within the last hour.
       const evals = board.claim('evals', { state: 'ready', detail: 'No unavailable Eval in the last hour' })
       const evaluateDue = () => { engine.evaluateDue(); evals.set(evalsHealth(store)) }

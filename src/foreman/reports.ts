@@ -20,6 +20,14 @@ export interface ApplyReportInput {
   report: (ticketId: string, report: { state: NodeReportState; summary: string; question?: string }) => unknown
   /** The ticket and whether it is still open, for an assignment id; undefined when the ledger never had it. */
   ticketOf: (assignmentId: string) => AssignmentWhere | undefined
+  /**
+   * Hands a finished report to the main Session, exactly as a local worker's report does.
+   *
+   * Without this a remote report only reached the ledger: the ticket showed `ready` in the panel while the Session
+   * that dispatched it was never told, so it neither relayed the result to the person nor did anything about it. A
+   * local worker's `orchestrator_report` tool calls `reportRelay` and wakes the Session; a device had no equivalent.
+   */
+  relay?: (ticketId: string) => void
   log: (text: string) => void
 }
 
@@ -46,6 +54,11 @@ export function applyReport(input: ApplyReportInput): (assignmentId: string, fra
     }
     input.report(where.ticketId, { state: frame.state, summary: frame.summary,
       ...(frame.question === undefined ? {} : { question: frame.question }) })
+    // A report from a device is the same event as one from a local worker, and the main Session has to hear it the
+    // same way: `reportRelay` decides whether a person needs to see it (progress stays internal) and the relay wakes
+    // the Session so it can relay the result or carry on with the next step.
+    try { input.relay?.(where.ticketId) }
+    catch (error) { input.log(`could not relay the report for ${where.ticketId}: ${String(error)}`) }
   }
 }
 

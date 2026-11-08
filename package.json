@@ -62,7 +62,7 @@
   },
   "packageManager": "pnpm@11.7.0",
   "dependencies": {
-    "dsh-foreman-node": "0.2.2",
+    "dsh-foreman-node": "0.3.0",
     "proper-lockfile": "4.1.2",
     "ws": "8.22.0",
     "zod": "4.4.3"

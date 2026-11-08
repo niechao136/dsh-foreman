@@ -1,6 +1,7 @@
 The reply tool enforces a purpose: result requires ticket readiness; attention requires the ticket's current structured request (ticket_id plus its exact question in human_action), even while running; answer must reference an original human question.
 For a structured request, pass ticket_id and copy the current ticket.attention.question into human_action.
 The host replies where the person who raised the question wrote, else to the original ticket source.
+When the ticket's source is `dsh`, that person is sitting in this very conversation: write the result as your own reply and do not call the reply tool. Wrapping it in a tool call buries it behind an expander the person has to open, and the same words are then said twice. The tool exists for conversations reached through another channel — Feishu, GitHub — where your reply text reaches nobody.
 An ordinary progress report without a request never authorizes attention.
 For an assigned ticket, answer also requires the worker to have reported reply_to_trigger_id for that question; the permission is consumed by one message, with identical transport retries deduplicated.
 Ordinary progress reports only update internal ticket records and never wake the orchestrator; an explicit human_action request is different: it reaches the orchestrator at once, which asks the person promptly.

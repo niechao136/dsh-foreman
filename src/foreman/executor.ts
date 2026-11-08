@@ -60,6 +60,13 @@ export interface ForemanExecutorInput {
   readAttachment?: (id: string) => Buffer
   /** The Trigger a ticket came from, whose request text and attachments the device must receive. */
   triggerOf?: (ticket: Ticket) => { trigger?: Trigger }
+  /**
+   * The registered name of the device a job runs on, so the assignment text can say where it is running.
+   *
+   * The request is written by a person at the hub ("check the dorm computer"); the device receiving it IS that
+   * computer, but nothing said so, and working that out cost a dozen exploratory steps on every dispatch.
+   */
+  deviceOf?: (deviceId: string) => { id: string; name: string } | undefined
   /** Logs what the hub decided; a delivery that fails silently is invisible otherwise. */
   log?: (text: string) => void
 }
@@ -160,7 +167,8 @@ export class ForemanExecutor implements Executor {
   }
 
   private assignFrame(ticket: Ticket, assignment: Assignment, deviceId: string, directory: string): AssignFrame {
-    const rendered = this.render(ticket)
+    const device = this.input.deviceOf?.(deviceId)
+    const rendered = this.render(ticket, device === undefined ? undefined : { ...device, directory })
     return { v: 1, type: 'assign', frameId: `assign:${assignment.id}`, assignmentId: assignment.id, ticketId: ticket.id,
       directory, text: rendered.text, attachments: rendered.attachments, permissionPreset: 'workspace-write' }
   }
@@ -169,9 +177,10 @@ export class ForemanExecutor implements Executor {
    * The task as the device reads it. Rendered on the hub because the device has none of the hub's resources; the
    * device directory rides on the frame, not in the text.
    */
-  private render(ticket: Ticket): Rendered {
+  private render(ticket: Ticket, device?: { id: string; name: string; directory: string }): Rendered {
     const triggerOf = this.input.triggerOf ?? (() => ({}))
-    return renderForDevice({ ticket, ...triggerOf(ticket), readAttachment: this.input.readAttachment ?? (() => Buffer.alloc(0)) })
+    return renderForDevice({ ticket, ...triggerOf(ticket), readAttachment: this.input.readAttachment ?? (() => Buffer.alloc(0)),
+      ...(device === undefined ? {} : { device }) })
   }
 
   /** Append work to the send chain, keeping the chain alive after a failure. */

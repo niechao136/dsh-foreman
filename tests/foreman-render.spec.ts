@@ -93,3 +93,28 @@ it('tells the device it has to report, because answering in chat reaches nobody'
   expect(text).toContain('foreman_report')
   expect(text).toMatch(/not finished until you/i)
 })
+
+it('says which machine the job is on, so the device need not work out that the request meant itself', () => {
+  // A person at the hub writes "check the dorm computer" and the device receiving it IS that computer, but nothing
+  // said so: the model spent its opening steps comparing names and listing directories looking for itself.
+  const { text } = renderForDevice({ ticket, trigger, readAttachment: () => Buffer.from(''),
+    device: { id: 'pc', name: '宿舍电脑', directory: 'F:\\dsh' } })
+  expect(text).toContain('宿舍电脑')
+  expect(text).toContain('pc')
+  expect(text).toContain('F:\\dsh')
+  // It has to say plainly that a named machine is this one, not merely list the directory.
+  expect(text).toMatch(/it means you/i)
+})
+
+it('does not offer the directory name as a machine alias, because it is usually the project', () => {
+  const { text } = renderForDevice({ ticket, trigger, readAttachment: () => Buffer.from(''),
+    device: { id: 'pc', name: '宿舍电脑', directory: 'F:\\projects\\shop' } })
+  // "shop" is the project there, not another name for the machine.
+  expect(text).not.toContain('"shop"')
+  expect(text).toContain('宿舍电脑')
+})
+
+it('omits the location when the caller does not know the device', () => {
+  const { text } = renderForDevice({ ticket, trigger, readAttachment: () => Buffer.from('') })
+  expect(text).not.toContain('Where this job runs')
+})

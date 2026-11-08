@@ -25,6 +25,14 @@ export interface RenderInput {
   trigger?: Trigger
   /** Reads an attachment's bytes by id. */
   readAttachment: (id: string) => Buffer
+  /**
+   * Where this job is running, so the text can say so.
+   *
+   * Without it the request's own words are the only clue: a person wrote "the dorm computer" while sitting at the hub,
+   * and the device had to work out from the registry that this sentence was about itself. That took a dozen steps of
+   * exploration every time. Naming the machine and its directory up front removes the guess.
+   */
+  device?: { id: string; name: string; directory: string }
 }
 
 export interface Rendered {
@@ -90,6 +98,22 @@ function attachmentSection(names: readonly string[]): string {
  * wrote a complete answer, and never called `foreman_report`, so the hub sat at `running` with no report forever and
  * a person saw a job that never finished. The tool exists, but nothing told the model it was required or final.
  */
+/**
+ * Where this job is running, stated so the device never has to deduce that the request referred to itself.
+ *
+ * A person at the hub writes about their machines by name ("the dorm computer", "my laptop"). The device that receives
+ * that sentence IS one of those machines, but nothing in the text said which one, so the model spent its first steps
+ * comparing names, listing directories and looking for itself. This is one line that ends that.
+ */
+function locationSection(device: { id: string; name: string; directory: string }): string {
+  // Only the registered name is offered as an alias. The directory's last segment is often a project name, and
+  // telling the model that "dsh" means this machine would confuse it about what the project is.
+  return `\n## Where this job runs\n\n`
+    + `You are the device **${device.name}** (id \`${device.id}\`) working in \`${device.directory}\`.`
+    + ` When the request names this machine — "${device.name}", or "this computer", "here", "the machine you are on" —`
+    + ` it means you, and the files are already under that directory. Do not go looking for another machine.\n`
+}
+
 const REPORT_SECTION = [
   '\n## Reporting back\n',
   '\nWhen you have finished, call `foreman_report` — that tool is how this job reaches the person who asked, and ',
@@ -115,7 +139,9 @@ export function renderForDevice(input: RenderInput): Rendered {
   }
   const scope = scopeOf(ticket)
   const request = trigger?.text?.trim() ?? ''
-  const sections = [`# ${ticket.title}`, scope === '' ? '' : `\n${scope}\n`, request === '' ? '' : `\n## The request as it was written\n\n${request}\n`,
+  const location = input.device === undefined ? '' : locationSection(input.device)
+  const sections = [`# ${ticket.title}`, location, scope === '' ? '' : `\n${scope}\n`,
+    request === '' ? '' : `\n## The request as it was written\n\n${request}\n`,
     attachmentSection(attachments.map(attachment => attachment.name ?? attachment.id)), REPORT_SECTION]
   return { text: sections.filter(section => section !== '').join(''), attachments }
 }

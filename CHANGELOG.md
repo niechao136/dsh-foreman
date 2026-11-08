@@ -6,6 +6,28 @@
 
 本项目自己的版本从 `0.1.0` 开始。
 
+## 0.3.3 — 2026-11-08
+
+### 改进：派单时直接告诉设备「你就是那台机器」
+
+人在 hub 上写「看看宿舍电脑上的项目结构」。「宿舍电脑」就是收到这条任务的那台机器，但**派单文本里
+没有一句话说明这件事**——设备收到的只有标题和请求原文。
+
+于是模型每次都要先花不少步数去比对设备名、列目录、找自己在哪儿，确认之后才真正开始干活。
+
+现在每张派单的开头多了一段：
+
+```
+## Where this job runs
+
+You are the device **宿舍电脑** (id `pc`) working in `F:\dsh`. When the request names this machine —
+"宿舍电脑", or "this computer", "here", "the machine you are on" — it means you, and the files are
+already under that directory. Do not go looking for another machine.
+```
+
+只把**登记的设备名**当作别名。目录的最后一段通常是项目名（`shop`），把它说成机器别名会让模型
+搞不清那是项目还是主机。
+
 ## 0.3.2 — 2026-11-08
 
 ### 修复：派单文本没有说要回报

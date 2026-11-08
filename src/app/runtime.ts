@@ -185,6 +185,8 @@ export class Runtime extends Service implements SourceHost {
       // target could not be reached turns `blocked` instead of quietly running here.
       this.foreman = new ForemanExecutor({ local: executor, readAttachment: id => readFileSync(attachmentPath(id)),
         triggerOf: ticket => ({ trigger: store.triggers.get(ticket.origin.triggerId) }),
+        // The device's registered name travels with the task, so the text can say "you are the dorm computer".
+        deviceOf: id => { const device = this.devices.get(id); return device === undefined ? undefined : { id: device.id, name: device.name } },
         engine: () => this.engine,
         transport: { send: (deviceId, frame) => this.hub?.send(deviceId, frame)
           ?? Promise.reject(new Error(`the foreman hub is not listening, so ${deviceId} cannot be reached`)) },

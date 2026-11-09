@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       dsh-foreman-node:
-        specifier: 0.3.0
-        version: 0.3.0(134225283b1f6d6e1e21121929954543)
+        specifier: 0.4.0
+        version: 0.4.0(134225283b1f6d6e1e21121929954543)
       proper-lockfile:
         specifier: 4.1.2
         version: 4.1.2
@@ -807,8 +807,8 @@ packages:
   '@deepseek-ai/schemastery@3.18.5-alpha.1':
     resolution: {integrity: sha512-HojoBv1wMQn6N8nDgTgWbc/f4EFAlg/ZsIYN2AChnEDoFOmcWd3+MDzhozNffmywywzV7pcouHRR4x37YZfcjA==}
 
-  '@eslint-community/regexpp@4.12.2':
-    resolution: {integrity: sha512-EriSTlt5OC9/7SXkRSCAhfSxxoSUgBm33OH+IkwbdpgoqsSsUg7y3uh+IICI/Qg4BBWr3U2i39RpmycbxMq4ew==}
+  '@eslint-community/regexpp@4.12.3':
+    resolution: {integrity: sha512-R76UKbvsqI68DJJVTVyqFKqU98CN4+B+acxNfEA2IFarSzP0SjtKf/3+fFiXzTyv5Fj3PxLkGHe2wnVWWMxobQ==}
     engines: {node: ^12.0.0 || ^14.0.0 || >=16.0.0}
 
   '@exodus/bytes@1.15.1':
@@ -1309,8 +1309,8 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
-  dsh-foreman-node@0.3.0:
-    resolution: {integrity: sha512-48Jn5zLPnV2OwLp3T/xYjqUlC7oKM6fOOYJAfVtD0Jj8oGcBld5c/m0D4+AJp9DVSP8R9t37jIigMLlY3UnKgQ==}
+  dsh-foreman-node@0.4.0:
+    resolution: {integrity: sha512-ZuzPtwBtX4kJ06ColXQdDm1ns9gLjLJAF2dvYIBKpZHGM98SuVn9OfS6Mfj3hDu7N287TsyJNwCZdy0vXH6z0A==}
     engines: {node: ^22.19.0 || >=24.0.0}
     peerDependencies:
       '@deepseek-ai/cordis': 4.0.5-alpha.1
@@ -2160,7 +2160,7 @@ snapshots:
       '@deepseek-ai/dsh-launch-environment': 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
       '@deepseek-ai/dsh-package-manifest': 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
       '@deepseek-ai/dsh-system-prompt': 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-llm@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))
-      '@eslint-community/regexpp': 4.12.2
+      '@eslint-community/regexpp': 4.12.3
       ajv: 8.20.0
       js-yaml: 4.3.2
       node-addon-require-builtin: 0.1.9
@@ -2658,7 +2658,7 @@ snapshots:
       '@deepseek-ai/cosmokit': 1.8.6-alpha.1
       '@standard-schema/spec': 1.1.0
 
-  '@eslint-community/regexpp@4.12.2': {}
+  '@eslint-community/regexpp@4.12.3': {}
 
   '@exodus/bytes@1.15.1': {}
 
@@ -2994,7 +2994,7 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  dsh-foreman-node@0.3.0(134225283b1f6d6e1e21121929954543):
+  dsh-foreman-node@0.4.0(134225283b1f6d6e1e21121929954543):
     dependencies:
       '@deepseek-ai/cordis': 4.0.5-alpha.1(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1)
       '@deepseek-ai/cosmokit': 1.8.5

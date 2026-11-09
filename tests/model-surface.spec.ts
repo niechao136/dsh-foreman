@@ -36,8 +36,12 @@ interface Skill { name: string; description: string; content: string }
 /**
  * Maximum combined character count of system prompt and tool definitions per role (~5% above baseline).
  * Lower this limit when shrinking model-facing text; raise it only intentionally and explain why in the commit message.
+ *
+ * Raised from 59_000 for `orchestrator_route`'s `device` field: the router had no way to say which machine must run an
+ * accept, so a request naming one machine was dispatched to whichever other device happened to be idler. The field and
+ * the dispatch line that explains it cost ~550 characters; the baseline had 10 characters of headroom left.
  */
-const BUDGET: Record<Role, number> = { orchestrator: 59_000, worker: 40_500 }
+const BUDGET: Record<Role, number> = { orchestrator: 60_000, worker: 40_500 }
 const PROMPTS = 'prompts/, skills/', TOOLS = 'src/app/tools/', SESSIONS = 'src/app/sessions.ts'
 const NOTICES = 'src/app/notices.ts', LINKS = 'src/app/links.ts', ASSESSMENT = 'src/app/assessment.ts'
 const EXECUTOR = 'src/executor/dsh.ts', ERRORS = 'src/core/errors.ts', RUNTIME = 'src/app/runtime.ts'

@@ -527,3 +527,50 @@ it('reads the PR a local Ticket reports from the workspace repository, not from 
   await expect(h.runTool(sessionId, 'orchestrator_report', { state: 'ready', summary: 'Done.', pr_number: 7 })).rejects.toThrow()
   expect(calls.some(call => call.includes('repos/acme/widgets/pulls/7'))).toBe(true)
 })
+
+/** Two machines that can both reach the same project, the named one busier so a load-based pick would choose the other. */
+const registerDevices = (online: { id: string; running: number }[]) => {
+  for (const [id, name, path] of [['laptop', '公司笔记本', 'D:\\\\dsh-plugin\\\\foreman'], ['pc', '宿舍电脑', 'F:\\\\dsh']] as const) {
+    h.runtime.devices.add({ id, name, roots: [{ project: 'foreman', path }] })
+  }
+  const sent: { deviceId: string; frame: { type: string } }[] = []
+  h.runtime.hub = { snapshot: () => online, send: (deviceId: string, frame: { type: string }) => { sent.push({ deviceId, frame }); return Promise.resolve() } } as never
+  return sent
+}
+const localTrigger = (id: string, text: string) =>
+  dshTrigger({ messageId: id, sessionId: 'session-1', text, at: new Date().toISOString(), workspace: '/root/foreman' })
+
+it('sends an accepted request that names a machine to that machine, even when the other one is idler', async () => {
+  const sent = registerDevices([{ id: 'laptop', running: 3 }, { id: 'pc', running: 0 }])
+  const trigger = localTrigger('m1', '在公司笔记本上跑一下这个')
+  h.runtime.receive(trigger); await h.runtime.idle()
+  const accepted = await h.route({ kind: 'accept', trigger_id: trigger.id, title: 'Do it on the laptop', worktree_name: 'do-it',
+    acknowledgement: '收到。', device: '公司笔记本' })
+  await h.runtime.idle()
+  const ticket = h.runtime.store.tickets.get((accepted.ticket as { ticket_id: string }).ticket_id)!
+  expect(ticket.target).toEqual({ deviceId: 'laptop', kind: 'remote', directory: 'D:\\\\dsh-plugin\\\\foreman' })
+  expect(sent.map(item => [item.deviceId, item.frame.type])).toEqual([['laptop', 'assign']])
+})
+
+it('still lets the selector pick when the accept names no machine', async () => {
+  registerDevices([{ id: 'laptop', running: 3 }, { id: 'pc', running: 0 }])
+  const trigger = localTrigger('m2', '随便哪台机器跑一下这个')
+  h.runtime.receive(trigger); await h.runtime.idle()
+  const accepted = await h.route({ kind: 'accept', trigger_id: trigger.id, title: 'Do it anywhere', worktree_name: 'do-it',
+    acknowledgement: '收到。' })
+  await h.runtime.idle()
+  const ticket = h.runtime.store.tickets.get((accepted.ticket as { ticket_id: string }).ticket_id)!
+  expect(ticket.target!.deviceId).toBe('pc')
+})
+
+it('reports blocked, and never runs on the host, when the named machine is not connected', async () => {
+  registerDevices([{ id: 'pc', running: 0 }])
+  const trigger = localTrigger('m3', '在公司笔记本上跑一下这个')
+  h.runtime.receive(trigger); await h.runtime.idle()
+  const accepted = await h.route({ kind: 'accept', trigger_id: trigger.id, title: 'Do it on the laptop', worktree_name: 'do-it',
+    acknowledgement: '收到。', device: 'laptop' })
+  await h.runtime.idle()
+  const ticket = h.runtime.store.tickets.get((accepted.ticket as { ticket_id: string }).ticket_id)!
+  expect(ticket.target).toBeUndefined()
+  expect(ticket.assignments.at(-1)!.report).toMatchObject({ state: 'blocked', summary: expect.stringContaining('no online device can take this') })
+})

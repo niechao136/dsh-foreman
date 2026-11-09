@@ -1,3 +1,46 @@
+## 0.3.9 — 2026-11-09
+
+### 修复：点名了设备，工单却发给了另一台
+
+真机现场（上海服务器，两台设备 `laptop`＝公司笔记本、`pc`＝宿舍电脑）：
+
+| 工单 | 用户点名 | 实际派给 | 路由备注 |
+| --- | --- | --- | --- |
+| `3481d0ac` | 公司笔记本 | **pc** | 目标机器是「公司笔记本」，不是宿舍电脑 |
+| `8bce26dc` | 公司笔记本 | **pc** | 用户指定在公司笔记本执行 |
+
+根因不在设备、连接或端口，而在**显式路由这条路上根本没有选择机器的字段**：
+
+- 选机只发生在 `prepareTicket`，它读 `outcome.device`（`src/foreman/prepare.ts:63`）；
+- `outcome.device` 只由 `orchestrator_eval_decide` 的 `AssessmentSchema` 提供（主动评估那条路）；
+- 而操作者直接下的指令走 `orchestrator_route`（kind=accept），它的 `RouteItemSchema` 里**没有 `device`**
+  → `request.device` 恒为 `undefined` → `mustBeRemote` 恒为假 → 退化成纯自动选机：
+  **最闲 → lastSeenAt 最新 → id 字典序**。两台设备都声明了同名项目根，于是谁闲谁中。
+
+账本可以直读：出问题的工单 decision 的 `reason` 都是 `[{"code":"explicitRouted"}]`，且全库所有 accept
+decision 的 `audit` 里 `device` 出现 **0 次**。主会话其实一直知道目标机器，只能写进 `note`——而 `note`
+是给 worker 看的文本，对枢纽选机毫无作用。
+
+更糟的是派单文本会以 `You are the device **宿舍电脑** (id pc)… When the request names this machine —` 开头，
+**反过来告诉错误的设备「你就是被点名的那台」**。
+
+修法：
+
+- `orchestrator_route` 的 item 增加可选 `device` 字段（按 id 或 name），透传进 `engine.decide`，与
+  `orchestrator_eval_decide` 对齐；`FIELDS` 里登记为 accept 读取、非必填。
+- `prompts/dispatch.md` 明确：请求本身点名机器时填 `device`；`note` 从不决定机器；被点名的设备离线时工单
+  `blocked`，绝不改派别处。
+- 模型可见文本预算从 59,000 提到 60,000（基线只剩 10 字符余量，本次净增 ~550）。
+
+`selector` / `prepare` 未改：`selectDevice` 本就支持按 id 或 name 精确匹配，`prepare.ts` 在点名设备不可用时
+本来就落 `blocked` 而不是悄悄换机器。
+
+回归测试（`tests/tools.spec.ts`）：
+
+- 点名机器（且该机器更忙）→ 派给被点名的机器；
+- 未点名 → 仍由 selector 选最闲的；
+- 点名机器不在线 → `blocked`，**不**在枢纽本机运行。
+
 ## 0.3.8 — 2026-11-09
 
 ### 设备端跟到 0.3.0：配置页搬进「设置 › 设备连接」

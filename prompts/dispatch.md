@@ -47,6 +47,8 @@ An accept is idempotent by trigger ID.
 An accept or attach takes an optional routing note of at most 30 words, counted with Chinese word segmentation for mixed text.
 Use it only for routing background or explicit human constraints, not implementation instructions.
 The host always includes the original trigger reference independently of the note.
+A note never chooses the machine; it reaches the worker only.
+An accept whose request names where the work must happen sets its device field to that machine, by id or name; otherwise it leaves device out so the selector picks. An offline named device leaves the ticket blocked, never running elsewhere.
 Use the actual source trigger ID, not your own rewrite or a worker summary.
 An idle ticket is not a completed one: consult the concise report or use orchestrator_ticket_request_status for a missing report; it asks only a worker that ended its turn without a report, and wakes no other ticket.
 Never read detailed transcripts to invent a plan.

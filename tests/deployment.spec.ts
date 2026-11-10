@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, delimiter } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Config, executable, machineOf, resolveDeployment, resolveFeishuBot, type Machine, type Probe } from '../src/deployment.ts'
+import { Config, diagnoseClis, executable, machineOf, resolveDeployment, resolveFeishuBot, type Machine, type Probe } from '../src/deployment.ts'
 import { gitEnv } from './fixtures/git.ts'
 
 const exec = promisify(execFile)
@@ -100,5 +100,46 @@ describe('setup', () => {
     await refuses('feishuNoBot')
     program(join(dir, 'bin', 'lark-cli'), 'echo "not configured" >&2; exit 1')
     await refuses('feishuCliFailed', { output: expect.stringContaining('not configured') })
+  })
+})
+
+/**
+ * 这一组直接覆盖上海服务器上那次误判：机器上装了 gh 与 lark-cli，面板却什么都看不出来。
+ *
+ * 两个来源都在没有仓库 / 没有 cli 名时提前返回，发现逻辑压根没跑；`diagnoseClis` 让“装了工具，但来源没设置”与
+ * “这台机器没有工具”在面板上终于长得不一样。
+ */
+describe('CLI diagnosis', () => {
+  // 用平台分隔符拼 PATH：仓库里既有的 `path` 夹具写死了 ':'，在 Windows 上整组用不了，新用例不该继承这个毛病。
+  // 必须在 `it` 内部求值：`describe` 的函数体先于 `beforeEach` 运行，那时 `dir` 还没建。
+  const cliPath = (): string => [join(dir, 'bin'), join(dir, 'state', 'worker-bin')].join(delimiter)
+  it('reports where each CLI is, even when the Source would skip the check', () => {
+    // 没有订阅仓库、也没有 cli 名：这正是服务器上的配置，此时 resolveDeployment 提前返回、根本不看 gh。
+    expect(diagnoseClis(machine(), {}, {}, cliPath())).toEqual({
+      github: { state: 'found', path: join(dir, 'bin', 'gh') },
+      feishu: { state: 'unset' },
+    })
+    expect(diagnoseClis(machine(), undefined, undefined, cliPath()).github).toEqual({ state: 'found', path: join(dir, 'bin', 'gh') })
+  })
+  it('names the search failure instead of silently reporting nothing', () => {
+    // PATH 里没有 gh 时如实说是“没找到”，而不是让面板显示空白，操作者以为设置被忽略。
+    const empty = diagnoseClis(machine(), {}, {}, join(dir, 'widgets'))
+    expect(empty.github.state).toBe('error')
+    expect(empty.github.state === 'error' && empty.github.detail).toContain('no gh is an executable file')
+    // 飞书留空是“没有机器人”这一正常状态，不能被报成一个错误。
+    expect(empty.feishu).toEqual({ state: 'unset' })
+  })
+  it('honours a typed name strictly, so a wrong spelling is an error rather than a fallback', () => {
+    expect(diagnoseClis(machine(), { repositories: [{ repository: 'acme/widgets' }], cli: 'gh' }, {}, cliPath()).github)
+      .toEqual({ state: 'found', path: join(dir, 'bin', 'gh') })
+    const wrong = diagnoseClis(machine(), { repositories: [{ repository: 'acme/widgets' }], cli: 'gh-typo' }, {}, cliPath())
+    expect(wrong.github.state).toBe('error')
+    expect(wrong.github.state === 'error' && wrong.github.detail).toContain('gh-typo is not an executable file')
+    // cli 名留空时在 PATH 与常见目录里找：这正是“默认安装不用填路径”那个承诺。
+    expect(diagnoseClis(machine(), { repositories: [{ repository: 'acme/widgets' }] }, {}, cliPath()).github)
+      .toEqual({ state: 'found', path: join(dir, 'bin', 'gh') })
+  })
+  it('finds the Feishu CLI once the Source names one', () => {
+    expect(diagnoseClis(machine(), {}, { cli: 'lark-cli' }, cliPath()).feishu).toEqual({ state: 'found', path: join(dir, 'bin', 'lark-cli') })
   })
 })

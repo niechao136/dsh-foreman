@@ -269,7 +269,8 @@ function initial(): PanelServer {
     health: {}, down: false, pending: 0, opened: [], requests: [], misuse: [], queued: new Set(), dropped: [], failing: [],
     setup: { machine: MACHINE, problem: null, problems: [],
       accounts: { repositories: ['acme/widgets'], agent: 'agent-bot', feishu: { appId: 'cli_bot', brand: 'feishu', botId: 'ou_bot',
-        name: 'Widgets Bot' } } },
+        name: 'Widgets Bot' } },
+      clis: { github: { state: 'found', path: '/usr/bin/gh' }, feishu: { state: 'found', path: '/usr/bin/lark-cli' } } },
     settings, revisions: { policy: 3, eval: 1, executor: 0 },
     devices: { rows: [], totals: { devices: 0, online: 0, revoked: 0, running: 0 } },
     /** Devices the panel registered through `POST devices`, so a test can assert what it sent. */

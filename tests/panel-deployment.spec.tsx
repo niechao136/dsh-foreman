@@ -92,6 +92,43 @@ it('renders the Deployment page with the derived accounts in the Plugin Manager,
   expect(text()).toContain(zh.hostNotRunning)
 })
 
+/**
+ * 这张卡是为“机器上装了工具，面板却什么都看不出来”加的那次排查留下的。
+ *
+ * 两个断言各说一件事：找到时给出路径；找到但没订阅仓库时，必须说清“找到了但没被使用”，否则操作者会继续以为是没发现。
+ */
+it('shows the command-line tools it found and whether the GitHub Source actually uses gh', async () => {
+  let container = document.createElement('div')
+  let root = createRoot(container)
+  onTestFinished(() => { act(() => { root.unmount() }); container.remove() })
+  // 每次重新挂载：改过 server.setup 后只有新挂载的 Provider 会立刻重新拉一次 state。
+  const render = async () => {
+    act(() => { root.unmount() }); container.remove()
+    container = document.createElement('div'); document.body.append(container)
+    root = createRoot(container)
+    server.form = fakeForm().form
+    await act(async () => { root.render(<PluginConfig t={translator(zh)} view="page" form={server.form && { state: server.form.getSnapshot(),
+      mutate: server.form.mutate }} />) })
+    await settle()
+  }
+  await render()
+  for (const fact of [zh.deploymentClis, zh.deploymentGithubCli, zh.deploymentFeishuCli,
+    '/usr/bin/gh', '/usr/bin/lark-cli']) expect(text()).toContain(fact)
+  // 订阅了仓库时不该出现“没被使用”的补充说明。
+  expect(text()).not.toContain(zh.deploymentCliUnused)
+  // 没订阅仓库：同样的路径还在，但要说明它没被使用——这正是服务器上的状态。
+  server.setup = { ...server.setup, accounts: { ...server.setup.accounts!, repositories: [] } }
+  await render()
+  expect(text()).toContain('/usr/bin/gh')
+  expect(text()).toContain(zh.deploymentCliUnused)
+  // 找不到工具时把搜索失败的原因说出来，而不是留空。
+  server.setup = { ...server.setup, clis: { github: { state: 'error', detail: 'gh is not an executable file on PATH' },
+    feishu: { state: 'unset' } } }
+  await render()
+  expect(text()).toContain('gh is not an executable file on PATH')
+  expect(text()).toContain(zh.deploymentCliUnset)
+})
+
 it('tells a dsh-foreman that is starting from a browser that cannot write on the Deployment page', async () => {
   const { form: shared, publish } = fakeForm()
   server.form = shared

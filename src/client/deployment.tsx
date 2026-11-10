@@ -22,7 +22,28 @@ type Limits = Record<typeof MACHINE_LIMITS[number], string>
 const text = (value: unknown): string => typeof value === 'string' || typeof value === 'number' ? String(value) : ''
 const limitsOf = (values: object | undefined): Limits =>
   Object.fromEntries(MACHINE_LIMITS.map(key => [key, text((values as Record<string, unknown> | undefined)?.[key])])) as Limits
-
+/**
+ * One CLI row of the tools card.
+ *
+ * A found GitHub CLI is still reported as unused when no repository is subscribed: that is the state this row exists to
+ * make visible, since setup silently skips the CLI check in that case.
+ */
+const cliText = (cli: SetupView['clis']['github'] | undefined, t: T): string => {
+  if (!cli) return t('unsetValue')
+  if (cli.state === 'unset') return t('deploymentCliUnset')
+  if (cli.state === 'error') return t('deploymentCliMissing', { detail: cli.detail })
+  return t('deploymentCliFound', { path: cli.path })
+}
+/**
+ * The GitHub CLI row, which also has to say when a found CLI is not used.
+ *
+ * 为什么这一行特殊：没有订阅仓库时 setup 根本不检查 gh，正是“装了却没用”这个容易误判为“没发现”的状态。
+ */
+const githubCliText = (setup: SetupView, t: T): string => {
+  const found = cliText(setup.clis?.github, t)
+  return setup.clis?.github?.state === 'found' && !setup.accounts?.repositories.length
+    ? `${found} · ${t('deploymentCliUnused')}` : found
+}
 export function usePageForm(form: ConfigForm<Record<string, unknown>> | undefined): DeploymentForm {
   const subscribe = useCallback((listener: () => void) => form ? form.subscribe(listener) : () => {}, [form])
   const state = useSyncExternalStore(subscribe, () => form?.getSnapshot())
@@ -85,6 +106,12 @@ export function DeploymentPage({ setup, form, accounts: showAccounts, head = fal
               { label: t('deploymentFeishu'), value: feishu },
             ]} />
             <Hint>{t('deploymentAccountsWhere')}</Hint>
+          </Card>}
+          {/* 工具是否装上，和来源是否用了它，是两件事：这一张卡只回答“这台机器上有没有、装在哪”。 */}
+          {showAccounts && <Card title={t('deploymentClis')} hint={t('deploymentClisHint')}>
+            <MetaList items={[
+              { label: t('deploymentGithubCli'), value: githubCliText(setup, t) },              { label: t('deploymentFeishuCli'), value: cliText(setup.clis?.feishu, t) },
+            ]} />
           </Card>}
           <Card title={t('deploymentMachine')}>
             <MetaList items={[{ label: t('deploymentStateDir'),

@@ -17,7 +17,7 @@ import { SettingsConflict, type Settings } from './settings.ts'
 import { SetupError, type SetupProblem } from '../setup.ts'
 import { adoptForeignFile } from '../infra/environment.ts'
 import { UserError, type EngineForPeople, type Ticket } from '../core/index.ts'
-import type { Deployment, Machine } from '../deployment.ts'
+import { diagnoseClis, type Deployment, type Machine } from '../deployment.ts'
 import type { DshExecutor } from '../executor/dsh.ts'
 import type { Health } from '../sources/host.ts'
 import type { SourceRegistry } from '../sources/registry.ts'
@@ -215,9 +215,12 @@ function setupProblems(runtime: HttpHost) {
 }
 function setupView(runtime: HttpHost) {
   const resolved = runtime.configured() ? runtime.deployment : undefined
+  // 每次响应都重新探测：CLI 是操作者在服务器上装的，装完不该为了看结果而重启整个插件。
+  const settings = runtime.store.settings()
   return {
     machine: machineView(runtime.machine), problem: runtime.setupProblem ?? null, problems: setupProblems(runtime),
     accounts: resolved ? { repositories: resolved.repositories, agent: resolved.github.login, feishu: resolved.feishu ? { appId: resolved.feishu.appId, brand: resolved.feishu.brand, botId: resolved.feishu.botId, name: resolved.feishu.name } : null } : null,
+    clis: diagnoseClis(runtime.machine, settings.sources.github?.config, settings.sources.feishu?.config),
   }
 }
 /** Build the `/orchestrator/api/state` response consumed by the management panel and `scripts/dsh-foreman status` (`docs/006-deployment.md`). */

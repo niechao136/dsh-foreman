@@ -183,6 +183,46 @@ export async function resolveDeployment(machine: Machine, github: unknown, probe
   return { ...machine, repositories: [...new Set(repositories)], github: { cli, login: agent.login, noreply: `${agent.id}+${agent.login}@users.noreply.github.com` } }
 }
 
+/**
+ * Why a Source does not use its CLI, as the settings page reports it.
+ *
+ * `found` is the binary this deployment would run. `error` means discovery ran and found nothing, so the operator
+ * learns the search failed rather than seeing a blank setting. `unset` means there was nothing to look for, which is
+ * the normal state of a Source that names no CLI at all.
+ */
+export type CliProbe = { state: 'unset' } | { state: 'found'; path: string } | { state: 'error'; detail: string }
+/**
+ * What discovery would do for a Source, without refusing setup when it finds nothing.
+ *
+ * @param name Configured CLI name; `''` means "find the usual one".
+ * @param optional When true, an empty `name` is reported as `unset` instead of being searched for: the Feishu Source
+ *   treats a blank CLI as "no bot", whereas the GitHub Source treats it as "find `gh`".
+ */
+const probeCli = (name: string, optional: boolean, path: string, exclude: string, fallbacks: readonly string[]): CliProbe => {
+  if (optional && name === '') return { state: 'unset' }
+  try { return { state: 'found', path: discoverExecutable(name, path, exclude, fallbacks) } }
+  catch (error) { return { state: 'error', detail: reason(error) } }
+}
+/**
+ * Report where each account CLI would be found, so the settings page can say "installed but not configured" instead
+ * of showing nothing at all.
+ *
+ * 为什么单独一条：`resolveDeployment` 在没有仓库时提前返回、`resolveFeishuBot` 在没有 cli 名时提前返回，两条路径都
+ * 不会调用发现逻辑——于是“机器上装了 gh 却仍不可用”和“根本没配”在面板上长得一模一样。这里只回答“能不能找到”，
+ * 不改变任何 Source 的行为，也不因为没有仓库或没有 cli 名就拒绝启动。
+ *
+ * @param github GitHub Source config, as stored (may be undefined when the Source is absent).
+ * @param feishu Feishu Source config, as stored (may be undefined when the Source is absent).
+ */
+export function diagnoseClis(machine: Machine, github: unknown, feishu: unknown, path = process.env.PATH ?? ''): { github: CliProbe; feishu: CliProbe } {
+  const exclude = workerBin(machine.stateDir)
+  const accounts = GithubAccountsSchema.parse(github ?? {})
+  const bot = FeishuBotSchema.parse(feishu ?? {})
+  // 没有仓库时仍探测 gh：这样能区分“装了 gh 但没订阅仓库”和“这台机器没有 gh”。
+  return { github: probeCli(accounts.cli, false, path, exclude, GITHUB_CLI_FALLBACKS),
+    feishu: probeCli(bot.cli, true, path, exclude, FEISHU_CLI_FALLBACKS) }
+}
+
 const AuthStatus = z.object({ appId: z.string().regex(/^cli_[A-Za-z0-9]+$/), brand: z.enum(['feishu', 'lark']).default('feishu'), identities: z.object({ bot: z.object({ status: z.string() }) }) })
 const BotInfo = z.object({ bot: z.object({ open_id: z.string().regex(/^ou_[A-Za-z0-9]+$/), app_name: z.string().default('') }) })
 /**

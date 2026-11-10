@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       dsh-foreman-node:
-        specifier: 0.4.0
-        version: 0.4.0(134225283b1f6d6e1e21121929954543)
+        specifier: 0.5.0
+        version: 0.5.0(134225283b1f6d6e1e21121929954543)
       proper-lockfile:
         specifier: 4.1.2
         version: 4.1.2
@@ -1309,8 +1309,8 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
-  dsh-foreman-node@0.4.0:
-    resolution: {integrity: sha512-ZuzPtwBtX4kJ06ColXQdDm1ns9gLjLJAF2dvYIBKpZHGM98SuVn9OfS6Mfj3hDu7N287TsyJNwCZdy0vXH6z0A==}
+  dsh-foreman-node@0.5.0:
+    resolution: {integrity: sha512-Vr7CyYG2IbMnqeCHV9eff7mm8jjSEO/dWAKb/aGhpJMYGtk2T8/X6VBTuy6ruoAPBjyRjvHailKPPmExS/e5zg==}
     engines: {node: ^22.19.0 || >=24.0.0}
     peerDependencies:
       '@deepseek-ai/cordis': 4.0.5-alpha.1
@@ -2994,7 +2994,7 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  dsh-foreman-node@0.4.0(134225283b1f6d6e1e21121929954543):
+  dsh-foreman-node@0.5.0(134225283b1f6d6e1e21121929954543):
     dependencies:
       '@deepseek-ai/cordis': 4.0.5-alpha.1(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1)
       '@deepseek-ai/cosmokit': 1.8.5

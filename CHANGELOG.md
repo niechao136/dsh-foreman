@@ -1,3 +1,38 @@
+## 0.4.0 — 2026-11-10
+
+### 新增：项目对应（GitHub 仓库 → 项目）
+
+路由表原来只能回答「哪个飞书群属于哪个项目」，GitHub 来的请求**完全没有项目**——`prepareTicket` 拿不到 workspace，
+就选不了设备，工单只能在本机执行。现在 `routing` 同时收仓库：
+
+```yaml
+routing:
+  repositories:
+    - { repository: acme/widgets, workspace: /srv/widgets, labels: [intranet] }
+```
+
+仓库名按大小写不敏感比较（GitHub 的 owner/repo 就是如此），`labels` 与群路由同义。**这是修 bug，不是加功能**：
+没登记的仓库仍在本机跑，GitHub 工单从此才能真正派到设备上。
+
+### 新增：设置 › 项目对应一页
+
+`routing` 从只能经数据库或 agent 工具修改，变成面板上的一等设置块（独立 revision，并发保存互不影响）。
+两半都以表格编辑，不填 JSON：群 id 和仓库名是又长又难记的字符串，一列一事的表格才看得清。
+
+### 新增：一台机器被选上之后还能换
+
+`AssignmentTarget.pinned`：请求点名机器、或群路由限定了标签时置位，重试仍去那台；否则重试可以重新选，
+排除刚失败的那台。设备离线不再意味着一整天的人工介入，**前提是没人点名要那台机器**。
+
+### 改进：CLI 路径不再必填
+
+GitHub CLI 与飞书 CLI 留空时，在 PATH 与常见安装位置里查找（`gh`/`gh-cli`、`lark-cli`/`larksuite-cli`）。
+**填了就严格按填的来**：静默回退到另一个二进制会把 agent 登录成那个它的账号，这正是这个字段存在的理由。
+
+### 内部：`frame` 队列与 reselect 的接缝
+
+`EngineOptions.reselectTarget` 是可选的：没有它，重试一律保留原机器，与之前一致。
+
 ## 0.3.9 — 2026-11-09
 
 ### 设备端跟到 0.4.0：设备可以把本机页面发布到枢纽

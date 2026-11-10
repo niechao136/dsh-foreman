@@ -1,7 +1,7 @@
 /** Shared base class and configuration for Engine domain parts. */
 import { UserError } from './errors.ts'
 import { followupOwners, reached, threadKey } from './model.ts'
-import type { Thread, ThreadRef, Ticket, Trigger } from './model.ts'
+import type { AssignmentTarget, Thread, ThreadRef, Ticket, Trigger } from './model.ts'
 import type { Assessor, AssessmentOutcome, DomainEvent, DomainEvents, Executor, Outbox, Policy, Repositories, SourceScope } from './ports.ts'
 
 export interface EngineOptions {
@@ -13,6 +13,14 @@ export interface EngineOptions {
   executor: Executor
   outbox: Outbox
   prepareTicket?: (ticket: Ticket, outcome: Extract<AssessmentOutcome, { kind: 'accept' }>) => Ticket
+  /**
+   * Choose a machine again for a ticket whose Assignment is being retried, or return nothing to keep the present one.
+   *
+   * A target the request itself named is never re-chosen: running that work elsewhere would put it where the person
+   * did not ask. A target the selector picked may move, because a laptop that went home must not strand tomorrow's
+   * work when another machine can do it. Optional: without it a retry always keeps its machine.
+   */
+  reselectTarget?: (ticket: Ticket) => AssignmentTarget | undefined
   now?: () => string
   emit?: (event: DomainEvent) => void
 }

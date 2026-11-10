@@ -548,7 +548,8 @@ it('sends an accepted request that names a machine to that machine, even when th
     acknowledgement: '收到。', device: '公司笔记本' })
   await h.runtime.idle()
   const ticket = h.runtime.store.tickets.get((accepted.ticket as { ticket_id: string }).ticket_id)!
-  expect(ticket.target).toEqual({ deviceId: 'laptop', kind: 'remote', directory: 'D:\\\\dsh-plugin\\\\foreman' })
+  // Pinned: the request named this machine, so a retry asks it again rather than moving the work elsewhere.
+  expect(ticket.target).toEqual({ deviceId: 'laptop', kind: 'remote', directory: 'D:\\\\dsh-plugin\\\\foreman', pinned: true })
   expect(sent.map(item => [item.deviceId, item.frame.type])).toEqual([['laptop', 'assign']])
 })
 

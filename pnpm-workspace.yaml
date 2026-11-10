@@ -6,3 +6,4 @@ packages:
 
 minimumReleaseAgeExclude:
   - dsh-foreman-node@0.4.0
+  - dsh-foreman-node@0.5.0

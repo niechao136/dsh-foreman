@@ -116,8 +116,26 @@ export const ChatRouteSchema = z.object({
   /** Capabilities a device must all carry to take this chat's work, such as `intranet`. */
   labels: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
 }).strict()
-export const RoutingSchema = z.object({ chats: z.array(ChatRouteSchema).max(500).default([]) }).strict()
+/**
+ * One repository mapped to a project.
+ *
+ * A Feishu chat says where a request was written; a repository says what it is about, and GitHub Triggers carry no
+ * workspace of their own. Without this table a GitHub ticket is prepared with no project, so `prepareTicket` cannot
+ * name a device and the work always runs on the host — which is why this entry exists rather than an optional one.
+ */
+export const RepositoryRouteSchema = z.object({
+  repository: z.string().trim().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, 'owner/name'),
+  /** An absolute path on the hub, the same shape every other workspace path has. */
+  workspace: z.string().trim().regex(/^(?:[\\/]|[A-Za-z]:[\\/])/, 'an absolute path'),
+  /** Capabilities a device must all carry to take this repository's work, such as `intranet`. */
+  labels: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
+}).strict()
+export const RoutingSchema = z.object({
+  chats: z.array(ChatRouteSchema).max(500).default([]),
+  repositories: z.array(RepositoryRouteSchema).max(500).default([]),
+}).strict()
 export type ChatRoute = z.infer<typeof ChatRouteSchema>
+export type RepositoryRoute = z.infer<typeof RepositoryRouteSchema>
 export const SettingsSchema = z.object({
   paused: z.boolean().default(false),
   sources: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/), SourceInstanceSchema).default({}),
@@ -141,7 +159,23 @@ export function workspaceOfChat(settings: Settings, chatId: string | undefined):
   if (route === undefined) return undefined
   return route.labels === undefined ? { workspace: route.workspace } : { workspace: route.workspace, labels: [...route.labels] }
 }
-export type SettingsBlock = 'policy' | 'eval' | 'executor' | `source:${string}`
+/**
+ * The project a repository belongs to, or undefined when the table does not mention it.
+ *
+ * Compared case-insensitively: GitHub owner and repository names are case-preserving but case-insensitive, so
+ * `Acme/Widgets` and `acme/widgets` are the same repository and must not be two routing rows. A stored
+ * `settings.repositories` canonical name wins over what a notification happens to spell.
+ *
+ * First match wins, for the same reason as `workspaceOfChat`: a duplicated row is a configuration mistake, and picking
+ * the first is a stable answer rather than one that changes with the table's order.
+ */
+export function workspaceOfRepository(settings: Settings, repository: string | undefined): { workspace: string; labels?: string[] } | undefined {
+  if (repository === undefined || repository === '') return undefined
+  const route = settings.routing.repositories.find(entry => entry.repository.toLowerCase() === repository.toLowerCase())
+  if (route === undefined) return undefined
+  return route.labels === undefined ? { workspace: route.workspace } : { workspace: route.workspace, labels: [...route.labels] }
+}
+export type SettingsBlock = 'policy' | 'eval' | 'executor' | 'routing' | `source:${string}`
 export type SettingsSave = SettingsBlock | 'pause'
 export type SettingsOrigin = 'panel' | 'tool' | 'sync'
 

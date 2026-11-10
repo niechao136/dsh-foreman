@@ -171,6 +171,9 @@ export class Tickets extends EnginePart {
     if (!canRetry(ticket) || !latest) throw new UserError('notRetryable')
     this.endAssignment(ticket, latest, 'retried')
     this.requeueUntaken(ticket, latest)
+    // A machine the selector chose may be replaced; one the request named may not. See `reselectTarget`.
+    const reselected = this.options.reselectTarget?.(ticket)
+    if (reselected !== undefined) ticket.target = reselected
     const assignment = this.newAssignment(ticket)
     ticket.updatedAt = this.now()
     this.repo.tickets.save(ticket)

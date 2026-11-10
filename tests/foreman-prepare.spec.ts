@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { prepareTicketWithForeman, projectOf } from '../src/foreman/prepare.ts'
+import { prepareTicketWithForeman, projectOf, reselectForRetry } from '../src/foreman/prepare.ts'
 import { selectDevice, type DeviceRequest } from '../src/foreman/selector.ts'
 import type { AssessmentOutcome, AssignmentTarget, Ticket, Trigger } from '../src/core/index.ts'
 import type { DeviceRecord } from '../src/foreman/devices.ts'
@@ -86,3 +86,23 @@ it('still runs on the host when nothing named a device and no device reaches the
   expect(prepared.blockedReason).toBeUndefined()
   expect(prepared.target).toBeUndefined()
 })
+
+it('reselects a machine for a retry only when the selector picked it, never when the request named it', () => {
+  const devices = [
+    { id: 'laptop', name: 'L', labels: [], tokenHash: 'h', roots: [{ project: 'shop', path: '/laptop/shop' }] },
+    { id: 'dorm', name: 'D', labels: [], tokenHash: 'h', roots: [{ project: 'shop', path: '/dorm/shop' }] },
+  ]
+  const online = [{ id: 'dorm', running: 0 }]
+  const select = reselectForRetry({ devices: () => devices as never, online: () => online, triggerOf: () => trigger('/w/shop'),
+    workspaceOf: () => '/w/shop', local: subject => subject })
+  const ticket = { id: 'tk1', target: { deviceId: 'laptop', kind: 'remote', directory: '/laptop/shop' } } as unknown as Ticket
+  // The laptop is offline and the dorm PC can take the project: the retry moves.
+  expect(select(ticket)).toEqual({ deviceId: 'dorm', kind: 'remote', directory: '/dorm/shop' })
+  // A request that named the laptop keeps it: moving that work would run it where nobody asked.
+  const pinned = { ...ticket, target: { ...ticket.target!, pinned: true } } as unknown as Ticket
+  expect(select(pinned)).toBeUndefined()
+  // Nothing else can take it: the machine stays, and the ticket stays blocked for a person.
+  expect(reselectForRetry({ devices: () => devices as never, online: () => [], triggerOf: () => trigger('/w/shop'),
+    workspaceOf: () => '/w/shop', local: subject => subject })(ticket)).toBeUndefined()
+})
+

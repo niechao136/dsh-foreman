@@ -92,6 +92,52 @@ export function executable(name: string, path: string, exclude?: string): string
   throw new Error(`${name} is not an executable file${isAbsolute(name) ? '' : ' on PATH'}`)
 }
 
+/**
+ * The spellings the GitHub CLI is installed under, tried after the configured name.
+ *
+ * `gh` is the released name; `gh-cli` is what some package managers install. A deployment that needs another name
+ * still types it, so this list only saves the common case.
+ */
+const GITHUB_CLI_FALLBACKS = ['gh', 'gh-cli'] as const
+/** The spellings the Feishu bot CLI is installed under, tried after the configured name. */
+const FEISHU_CLI_FALLBACKS = ['lark-cli', 'larksuite-cli'] as const
+
+/**
+ * Well-known places a CLI is installed when it is not on the PATH the hub runs with.
+ *
+ * The hub is often started by systemd or a container, whose PATH differs from the operator's shell — the reason a
+ * working `gh` "could not be found". Only standard prefixes and the user's own bin directories are named.
+ */
+const knownDirectories = (name: string): string[] => {
+  const home = homedir(), suffix = process.platform === 'win32' ? `${name}.exe` : name
+  return [
+    join(home, '.local', 'bin'), join(home, 'bin'), join(home, '.npm-global', 'bin'),
+    join(home, 'AppData', 'Local', 'Microsoft', 'WinGet', 'Links'),
+    '/usr/local/bin', '/usr/bin', '/bin', '/opt/homebrew/bin', '/snap/bin',
+  ].map(directory => join(directory, suffix))
+}
+
+/**
+ * The executable a configured CLI name resolves to.
+ *
+ * An empty `name` used to be a setup error the operator fixed by typing an absolute path. It now means "find the
+ * usual tool": `fallbacks` first, then the well-known install directories. A name that IS given is honoured strictly —
+ * silently falling back to a different binary would sign the agent in as whichever account that one holds, which is
+ * exactly the mistake this setting exists to prevent.
+ *
+ * @throws Error naming every spelling tried when nothing executable was found.
+ */
+export function discoverExecutable(name: string, path: string, exclude: string, fallbacks: readonly string[] = []): string {
+  if (name !== '') return executable(name, path, exclude)
+  const tried: string[] = []
+  for (const candidate of [...fallbacks, ...fallbacks.flatMap(knownDirectories)]) {
+    if (tried.includes(candidate)) continue
+    tried.push(candidate)
+    try { return executable(candidate, path, exclude) } catch { /* Keep looking. */ }
+  }
+  throw new Error(`no ${fallbacks[0] ?? 'command'} is an executable file: tried ${tried.join(', ')}`)
+}
+
 export type Probe = (argv: string[]) => Promise<string>
 /** Run startup checks through DSH's worker subprocess service with worker shims removed from PATH so a `gh` wrapper script reaches the real binary. */
 export function workerProbe(subprocess: SubprocessRuntime, stateDir: string, cwd: string, signal: AbortSignal): Probe {
@@ -116,9 +162,10 @@ export async function resolveDeployment(machine: Machine, github: unknown, probe
   // 本地工作区模式：没有配置 GitHub 仓库时，不访问 GitHub，工单直接在工作区目录里执行。
   // 这类部署照样要有 stateDir 与 worker 环境，所以仍返回一个 Deployment，只是仓库与账户为空。
   if (!wanted.length) return { ...machine, repositories: [], github: { cli: '', login: '', noreply: '' } }
-  if (!accounts.cli) throw new SetupError('agentCliUnset')
   let cli: string
-  try { cli = executable(accounts.cli, path, workerBin(stateDir)) } catch (error) { throw new SetupError('agentCliMissing', { output: reason(error) }) }
+  // An empty `cli` was a setup error; it now means "find the agent's gh", so a default installation needs no path typed.
+  try { cli = discoverExecutable(accounts.cli, path, workerBin(stateDir), GITHUB_CLI_FALLBACKS) }
+  catch (error) { throw new SetupError(accounts.cli === '' ? 'agentCliUnset' : 'agentCliMissing', { output: reason(error) }) }
   const text = await probe([cli, 'api', 'user']).catch((error: unknown) => { throw new SetupError('agentCliSignedOut', { output: reason(error) }) })
   const agent = parsed(GithubUser, text)
   if (!agent) throw new SetupError('agentCliNoAccount')
@@ -144,10 +191,12 @@ const BotInfo = z.object({ bot: z.object({ open_id: z.string().regex(/^ou_[A-Za-
  */
 export async function resolveFeishuBot(machine: Machine, feishu: unknown, probe: Probe, path = process.env.PATH ?? ''): Promise<FeishuBot | undefined> {
   const { cli: name } = FeishuBotSchema.parse(feishu ?? {})
+  // No CLI named is no Feishu bot: a deployment without Feishu must not start one. A named CLI is discovered, so the
+  // operator can type `lark-cli` alone and let the hub find where it lives.
   if (!name) return undefined
   const fail = (error: unknown): never => { throw error instanceof SetupError ? error : new SetupError('feishuCliFailed', { output: reason(error) }) }
   let cli = ''
-  try { cli = executable(name, path, workerBin(machine.stateDir)) } catch (error) { fail(error) }
+  try { cli = discoverExecutable(name, path, workerBin(machine.stateDir), FEISHU_CLI_FALLBACKS) } catch (error) { fail(error) }
   const run = (...args: string[]): Promise<string> => probe(['env', 'LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1', 'LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1', cli, ...args]).catch(fail)
   const text = await run('auth', 'status')
   const status = parsed(AuthStatus, text.slice(text.indexOf('{')))

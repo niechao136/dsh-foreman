@@ -9,7 +9,8 @@ import { Button } from './controls.tsx'
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
-const LIST_KEYS = ['id', 'chatId']
+/** Fields that name a record in a list, so a three-way merge can match elements across two saves. */
+const LIST_KEYS = ['id', 'chatId', 'repository']
 const named = (list: unknown[], field: string) =>
   list.every(item => isRecord(item) && typeof item[field] === 'string') && new Set(list.map(item => (item as Record<string,
     unknown>)[field])).size === list.length

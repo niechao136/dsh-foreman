@@ -99,3 +99,25 @@ it('records nothing for a pause that changes nothing, refuses a sync while setup
   vi.mocked(Setup.prototype.configured).mockRestore()
   expect(() => settings.block('source:x')).toThrow(new UserError('unknownBlock', { block: 'source:x' }))
 })
+
+it('saves and reads the routing block, so a mapping is panel-editable and reaches device selection', async () => {
+  h = await startRuntime()
+  const { settings, store } = h.runtime
+  const revision = store.blockRevision('routing')
+  expect(settings.block('routing').value).toEqual({ chats: [], repositories: [] })
+  await settings.save('routing', {
+    chats: [{ chatId: 'oc_shop', workspace: '/srv/shop' }],
+    repositories: [{ repository: 'acme/widgets', workspace: '/srv/widgets', labels: ['intranet'] }],
+  }, revision, 'panel')
+  expect(store.settings().routing.repositories).toEqual([{ repository: 'acme/widgets', workspace: '/srv/widgets', labels: ['intranet'] }])
+  expect(settings.block('routing').revision).toBe(revision + 1)
+  expect(settings.view().routing.value).toMatchObject({ repositories: [{ repository: 'acme/widgets' }] })
+})
+
+it('refuses a routing block that is not a route table, leaving the saved one in place', async () => {
+  h = await startRuntime()
+  const { settings, store } = h.runtime
+  const revision = store.blockRevision('routing')
+  await expect(settings.save('routing', { repositories: [{ repository: 'not-a-repo', workspace: '/w/x' }] }, revision, 'panel')).rejects.toThrow()
+  expect(store.settings().routing.repositories).toEqual([])
+})

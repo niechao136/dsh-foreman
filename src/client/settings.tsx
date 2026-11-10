@@ -8,6 +8,7 @@ import { EvalSettings } from './eval.tsx'
 import { LogsSettings } from './logs.tsx'
 import { ExecutionSettings } from './execution.tsx'
 import { PromptsPage } from './prompts.tsx'
+import { RoutingSettings } from './routing.tsx'
 import { usePanel } from './provider.tsx'
 import { SETTINGS_GROUPS, settingsRoute, type SettingsGroup } from './route.ts'
 import { SettingsProvider, useSettingsQuery } from './settings-kit.tsx'
@@ -72,6 +73,7 @@ export function SettingsPage({ group, query, state, deploymentForm }: {
       case 'source': return <SourceSettings {...query.source ? { focus: query.source } : {}} />
       case 'eval': return <EvalSettings version={query.version} />
       case 'execution': return <ExecutionSettings />
+      case 'routing': return <RoutingSettings version={query.version} />
       case 'devices': return <DevicesSettings />
       case 'prompts': return <PromptsPage />
       case 'deployment': return <DeploymentPage setup={state.setup} form={deploymentForm} />

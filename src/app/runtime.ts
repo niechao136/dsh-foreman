@@ -42,8 +42,8 @@ import { Devices } from '../foreman/devices.ts'
 import { ForemanExecutor, inputsOf } from '../foreman/executor.ts'
 import { Hub } from '../foreman/hub.ts'
 import { serve, type Served } from '../foreman/ws.ts'
-import { prepareTicketWithForeman } from '../foreman/prepare.ts'
-import { routeIndexOf, chatRouteOf, type ChatIndex } from '../foreman/routing.ts'
+import { prepareTicketWithForeman, reselectForRetry, type PrepareInput } from '../foreman/prepare.ts'
+import { routeIndexOf, chatRouteOf, repositoryRouteOf, type ChatIndex } from '../foreman/routing.ts'
 import { alignHello, onTimeout, applyReport, type AssignmentWhere } from '../foreman/reports.ts'
 import type { Frame, ReportFrame } from '../foreman/protocol.ts'
 import { attachmentPath } from '../sources/dsh.ts'
@@ -192,23 +192,23 @@ export class Runtime extends Service implements SourceHost {
           ?? Promise.reject(new Error(`the foreman hub is not listening, so ${deviceId} cannot be reached`)) },
         log: text => ctx.logger.warn('dsh-foreman: %s', text) })
       // The selection seam: a device is chosen while the ticket is accepted, then the local prepare fills `execution`.
-      const prepareTicket = prepareTicketWithForeman({ devices: () => this.devices.list(), online: () => this.hub?.snapshot() ?? [],
+      const preparation: PrepareInput = { devices: () => this.devices.list(), online: () => this.hub?.snapshot() ?? [],
         triggerOf: ticket => store.triggers.get(ticket.origin.triggerId),
         // A chat's labels constrain which devices may take its work: an office-only project never falls back to a
         // laptop that happens to be online. A chat without labels imposes none.
         labelsOf: trigger => {
-          const chatId = trigger?.source === 'feishu' && typeof trigger.meta['chatId'] === 'string' ? trigger.meta['chatId'] : undefined
-          return chatRouteOf(this.chatRoutes, chatId)?.labels
+          const route = this.routeOf(trigger)
+          return route?.labels
         },
-        workspaceOf: trigger => {
-          const chatId = trigger?.source === 'feishu' && typeof trigger.meta['chatId'] === 'string' ? trigger.meta['chatId'] : undefined
-          return chatRouteOf(this.chatRoutes, chatId)?.workspace
-        },
-        local: (ticket, outcome) => executor.prepare(ticket, outcome) })
+        workspaceOf: trigger => this.routeOf(trigger)?.workspace,
+        local: (ticket, outcome) => executor.prepare(ticket, outcome) }
+      const prepareTicket = prepareTicketWithForeman(preparation)
+      // A retried ticket whose machine the selector picked may move to another one; one that named its machine may not.
+      const reselectTarget = reselectForRetry(preparation)
       // Frames that carry facts about work become Engine calls here, the hub itself writing nothing.
       const policy = () => settingsPolicy(store.settings(), sources)
       const engine = this.engine = new Engine({ repo: store, scope: sources, policy, assessor, executor: this.foreman,
-        outbox, prepareTicket, emit: event => {
+        outbox, prepareTicket, reselectTarget, emit: event => {
           // A ticket's events belong to the main Session that started it; anything unattributable stays with the default one.
           const ended = event.type === 'ticket.ended' ? store.tickets.get(event.data.ticketId) : undefined
           const home = ended ? this.masterOf(store.triggers.get(ended.origin.triggerId)) : undefined
@@ -296,13 +296,35 @@ export class Runtime extends Service implements SourceHost {
 
   /** 这条会话是不是某个工作区的主子。 */
   /**
+   * The project route a Trigger names, whichever Source it came from.
+   *
+   * A Feishu message names a chat; a GitHub Trigger names a repository. Both are looked up in the same settings
+   * table, so one function answers "whose work is this" for both — and a GitHub ticket finally gets a project, which
+   * it had never had: without one `prepareTicket` could not name a device and every GitHub ticket ran on the host.
+   *
+   * Returns the first route that matches; a Trigger that names neither, or names one the table does not list, gets
+   * undefined and falls back to the default main Session and to host execution.
+   */
+  private routeOf(trigger: Trigger | undefined): { workspace: string; labels?: string[] } | undefined {
+    if (trigger === undefined) return undefined
+    if (trigger.source === 'feishu' && typeof trigger.meta['chatId'] === 'string') {
+      return chatRouteOf(this.chatRoutes, trigger.meta['chatId'])
+    }
+    if (trigger.source === 'github' && typeof trigger.meta['repository'] === 'string') {
+      return repositoryRouteOf(this.chatRoutes, trigger.meta['repository'])
+    }
+    return undefined
+  }
+
+  /**
    * The main Session a Trigger's conversation belongs to.
    *
-   * Three cases, in order of how much is known:
+   * Four cases, in order of how much is known:
    * - The local Source's Thread *is* the Session that spoke, so a request made in any workspace's main Session reports
    *   back there.
    * - A Feishu chat mapped in the routing table belongs to that chat's project, so its work reports to that project's
    *   main Session.
+   * - A repository mapped in the routing table does the same for GitHub work.
    * - Everything else keeps the default main Session, which is how every chat behaved before the table existed.
    *
    * Synchronous on purpose: the Engine calls this inside its emit path, so it reads a cached chat index rather than
@@ -312,10 +334,9 @@ export class Runtime extends Service implements SourceHost {
   private masterOf(trigger: Trigger | undefined): string {
     const thread = trigger?.source === 'dsh' ? trigger.threads[0] : undefined
     if (thread !== undefined) return String(thread.id)
-    const chatId = trigger?.source === 'feishu' && typeof trigger.meta['chatId'] === 'string' ? trigger.meta['chatId'] : undefined
-    if (chatId !== undefined) {
-      const route = chatRouteOf(this.chatRoutes, chatId)
-      const masterId = route === undefined ? undefined : this.masterIdForPath(route.workspace)
+    const route = this.routeOf(trigger)
+    if (route !== undefined) {
+      const masterId = this.masterIdForPath(route.workspace)
       if (masterId !== undefined) return masterId
     }
     return this.masterId

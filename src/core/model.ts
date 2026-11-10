@@ -217,6 +217,15 @@ export interface AssignmentTarget {
   deviceId: string
   kind: 'local' | 'remote'
   directory: string
+  /**
+   * Whether a retry must stay on this machine.
+   *
+   * Set when the request itself named the machine, or when a chat's configuration confined the work to devices
+   * carrying certain labels: running such work elsewhere would put it somewhere the person did not ask for, so an
+   * offline device leaves the ticket `blocked` for a person to decide. Unset means the choice was the selector's, and
+   * a retry may pick again — a laptop that went home should not strand tomorrow's work when the dorm PC can do it.
+   */
+  pinned?: boolean
 }
 /** What an Assignment with no target means: the host itself, in whatever directory its ticket already carries. */
 export const LOCAL_TARGET: AssignmentTarget = { deviceId: 'local', kind: 'local', directory: '' }

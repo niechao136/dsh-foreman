@@ -5,7 +5,7 @@
  * (its port only queues work), so a target chosen there would never reach the database. `Tickets.create` runs
  * `prepareTicket` before `newAssignment` and before saving, so what this function writes is what gets stored.
  */
-import type { AssessmentOutcome, Ticket, Trigger } from '../core/index.ts'
+import type { AssessmentOutcome, AssignmentTarget, Ticket, Trigger } from '../core/index.ts'
 import type { DeviceRecord } from './devices.ts'
 import { selectDevice, type DeviceRequest, type Online } from './selector.ts'
 
@@ -43,6 +43,33 @@ export interface PrepareInput {
 }
 
 /**
+ * Builds the `reselectTarget` hook: pick a machine again for a retried ticket, or keep the one it has.
+ *
+ * Nothing is re-chosen when the ticket's target was pinned (the request or a chat named the machine), when it ended,
+ * or when the present machine is the only one that has the project. Otherwise the least busy eligible device wins,
+ * excluding the one that just failed so a retry makes progress instead of landing in the same place.
+ *
+ * Reads the same settings the accept did, so a routing change applies to a retry without a restart.
+ */
+export function reselectForRetry(input: PrepareInput) {
+  const select = input.select ?? selectDevice
+  return (ticket: Ticket): AssignmentTarget | undefined => {
+    const current = ticket.target
+    if (current === undefined || current.kind !== 'remote' || current.pinned === true) return undefined
+    const trigger = input.triggerOf(ticket)
+    const recorded = typeof trigger?.meta['workspace'] === 'string' ? trigger.meta['workspace'] as string : undefined
+    const workspace = recorded ?? input.workspaceOf?.(trigger)
+    const project = projectOf(workspace)
+    if (project === '') return undefined
+    const labels = input.labelsOf?.(trigger)
+    const request: DeviceRequest = { project, ...labels?.length ? { labels } : {} }
+    const chosen = select(request, input.devices(), input.online().filter(device => device.id !== current.deviceId))
+    // Nothing else can take it: keeping the machine is honest, and the ticket stays blocked for a person.
+    return chosen === undefined ? undefined : { ...chosen, pinned: current.pinned }
+  }
+}
+
+/**
  * Builds the `prepareTicket` hook: choose a device for the ticket, write the choice onto it, and let the local
  * prepare finish the job.
  *
@@ -77,10 +104,13 @@ export function prepareTicketWithForeman(input: PrepareInput) {
         // `blocked` report a person sees. Throwing here would abort `Tickets.create` and lose the ticket entirely.
         return { ...ticket, blockedReason }
       }
+      // Pinned when the constraint came from the request or the chat rather than from the selector's own ranking: a
+      // retry of such a ticket asks the same machine again instead of quietly moving the work somewhere else.
+      const chosen = target === undefined ? undefined : { ...target, ...mustBeRemote ? { pinned: true } : {} }
       // `target` is written before `local` runs so the local prepare sees the final ticket; `local` returns a new
       // object (it spreads the ticket), so the target has to be set on what it returns when it drops it.
-      const prepared = input.local({ ...ticket, ...(target === undefined ? {} : { target }) }, outcome)
-      return prepared.target === undefined && target !== undefined ? { ...prepared, target } : prepared
+      const prepared = input.local({ ...ticket, ...(chosen === undefined ? {} : { target: chosen }) }, outcome)
+      return prepared.target === undefined && chosen !== undefined ? { ...prepared, target: chosen } : prepared
     }
     const prepared = input.local(ticket, outcome)
     // An explicit device on an accept that names no project cannot be resolved to a path, so it is not a target.

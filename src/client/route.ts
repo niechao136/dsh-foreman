@@ -8,7 +8,7 @@ import type { T } from './text.ts'
 // 触发事件流不再单独成页：它只是决策的输入，去看某条判定时挂在判定详情里；完整的原始流水在「设置 › 日志」。
 export const TABS = ['overview', 'eval', 'execution', 'settings'] as const
 export type Tab = typeof TABS[number]
-export const SETTINGS_GROUPS = ['source', 'eval', 'execution', 'devices', 'prompts', 'deployment', 'logs'] as const
+export const SETTINGS_GROUPS = ['source', 'eval', 'execution', 'routing', 'devices', 'prompts', 'deployment', 'logs'] as const
 export type SettingsGroup = typeof SETTINGS_GROUPS[number]
 export type Route = { page: 'overview'; id?: undefined; query?: undefined }
   // 评估页：筛选条件进路由，刷新与分享都还原同一屏。

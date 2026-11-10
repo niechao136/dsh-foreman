@@ -827,9 +827,9 @@ it('waits for setup without the agent\'s GitHub CLI: the panel works, and nothin
   const next = await restart({}, { github: { cli: '' } })
   await next.ready
   expect(next.configured()).toBe(false)
-  expect(next.setupProblem).toMatchObject({ place: 'github', code: 'agentCliUnset', values: {}, detail: 'The agent GitHub CLI is not set.' })
+  expect(next.setupProblem).toMatchObject({ place: 'github', code: 'agentCliUnset', values: {}, detail: 'No agent GitHub CLI could be found.' })
   expect(next.health.runtime).toMatchObject({ state: 'paused', code: 'setupPending' })
-  expect(() => next.deployment).toThrow('dsh-foreman is waiting for setup: The agent GitHub CLI is not set.')
+  expect(() => next.deployment).toThrow('dsh-foreman is waiting for setup: No agent GitHub CLI could be found.')
   expect((await api('GET', 'state')).body).toMatchObject({ setup: { problem: { place: 'github' }, accounts: null, machine: { stateDir: directory } } })
   expect(overviewOf(next).problems[0]).toMatchObject({ kind: 'setup', ...next.setupProblem })
   await receive(feishu('30', '@bot 修一下'), next)

@@ -246,3 +246,28 @@ it('reads the settings again as soon as dsh-foreman answers after a save restart
   expect(field('智能体的 GitHub CLI').matches(':disabled')).toBe(false)
   expect(field<HTMLInputElement>('智能体的 GitHub CLI').value).toBe('/opt/bin/gh-agent')
 })
+
+/**
+ * Credentials typed on a Source card must stay typed.
+ *
+ * The regression this covers: the inputs were bound to `source.secret`, which the server reports with every value
+ * blank on purpose (the panel never receives a stored secret). A controlled input whose `value` is always '' therefore
+ * erased each keystroke — the boxes looked disabled because nothing could be entered into them.
+ */
+it('keeps a credential typed into the CLI form, and says a stored one is kept when left blank', async () => {
+  // The server pretends a token is already saved, which is exactly the state that used to break typing.
+  server.secret = { token: '' }
+  await mount()
+  await click(tab(zh['tab.settings']))
+  await settle()
+  const github = all('.dt-card')[1]!
+  const token = field<HTMLInputElement>('令牌')
+  // A stored value reports as "already saved, leave blank to keep it" rather than looking empty.
+  expect(token.placeholder).toBe(zh.cliSecretKeep)
+  await type(token, 'ghp_typed_value')
+  await settle()
+  // The regression: the keystrokes must survive a re-render instead of being reset to ''.
+  expect(field<HTMLInputElement>('令牌').value).toBe('ghp_typed_value')
+  // Typing a credential alone is enough to make the block dirty, so the save bar appears.
+  expect(all('.dt-savebar').length).toBe(1)
+})

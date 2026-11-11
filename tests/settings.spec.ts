@@ -5,6 +5,8 @@ import { Commands } from '../src/infra/commands.ts'
 import { Setup } from '../src/app/setup.ts'
 import { SettingsConflict } from '../src/app/settings.ts'
 import { startRuntime, type Host } from './fixtures/host.ts'
+import { KV } from '../src/kv.ts'
+import { secretKey, unseal } from '../src/infra/secrets.ts'
 
 let h: Host | undefined
 afterEach(async () => { await h?.stop(); h = undefined })
@@ -120,4 +122,30 @@ it('refuses a routing block that is not a route table, leaving the saved one in 
   const revision = store.blockRevision('routing')
   await expect(settings.save('routing', { repositories: [{ repository: 'not-a-repo', workspace: '/w/x' }] }, revision, 'panel')).rejects.toThrow()
   expect(store.settings().routing.repositories).toEqual([])
+})
+
+/**
+ * Credential saving: a blank form means "unchanged", never "delete".
+ *
+ * The card renders empty on every load because the panel is never sent a stored secret. If a save with empty boxes
+ * cleared the stored value, merely saving an unrelated field on the same card would silently drop the token and the
+ * CLI would start running as nobody while the card still looked configured.
+ */
+it('keeps a stored CLI credential when the card is saved with its boxes left blank', async () => {
+  h = await startRuntime()
+  const { settings, store } = h.runtime
+  const github = settings.block('source:github').value as { enabled: boolean; config: Record<string, unknown> }
+  // Start from a saved token, then save the block again with empty credential boxes.
+  await settings.save('source:github', { ...github, secret: { token: 'ghp_first' } }, settings.block('source:github').revision, 'panel')
+  const revision = settings.block('source:github').revision
+  await settings.save('source:github', { ...github, secret: { token: '' } }, revision, 'panel')
+  const sealed = store.get(KV.sources.secret('github'))
+  expect(sealed).toBeDefined()
+  expect(unseal(secretKey(h.runtime.machine.stateDir), sealed!)).toEqual({ token: 'ghp_first' })
+  // A non-empty value replaces it. The block is also changed, because an identical block is a no-op save that never
+  // reaches the credential write.
+  const changed = { ...github, config: { ...github.config, pollSeconds: 120 } }
+  await settings.save('source:github', { ...changed, secret: { token: 'ghp_second' } },
+    settings.block('source:github').revision, 'panel')
+  expect(unseal(secretKey(h.runtime.machine.stateDir), store.get(KV.sources.secret('github'))!)).toEqual({ token: 'ghp_second' })
 })

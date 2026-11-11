@@ -528,6 +528,7 @@ const TEXT = {
   routingChoose: ['请选择', 'Choose one'],
   cliAutoFind: ['自动查找（{names}）', 'Find automatically ({names})'],
   cliRefresh: ['重新查找程序', 'Rescan for programs'],
+  cliSecretKeep: ['已保存，留空表示不修改', 'Saved; leave blank to keep it'],
   cliTypePath: ['手动输入路径…', 'Type a path…'],
   cliRefreshHint: ['没有找到；先在这个界面上装好 CLI，再点一次重新查找。', 'Nothing found; install the CLI on this machine, then rescan.'],
   cliRefreshFound: ['找到 {count} 个程序', 'Found {count} programs'],

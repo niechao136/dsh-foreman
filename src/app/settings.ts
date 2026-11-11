@@ -292,16 +292,18 @@ export class Settings {
   /**
    * Stores a Source's CLI credential, encrypted.
    *
-   * An all-empty record deletes the stored credential instead of saving blanks: clearing the boxes is how an operator
-   * removes a token, and a saved empty value would run the CLI as nobody while looking configured.
+   * Only the keys the operator actually filled are written; a blank box means "leave the stored value alone", because
+   * the panel never receives a secret back and so cannot tell an untouched box from a cleared one. Removing a
+   * credential is therefore done by choosing no CLI, not by blanking a box — writing blanks would run the CLI as
+   * nobody while the card looked configured.
    */
   private writeSecret(id: string, next: Record<string, string>): void {
-    const stateDir = this.host.machine.stateDir
     const filled = Object.entries(next).filter(([, value]) => value !== '')
-    if (!filled.length) { this.host.store.set(KV.sources.secret(id), undefined); return }
-    // Merge over what is stored so a partially filled form keeps the values it did not show again (the panel never
-    // sends a stored secret back, so an empty box means "unchanged", not "clear").
-    const key = secretKey(stateDir)
+    // Nothing filled: keep whatever is stored. The form renders empty on every load, so treating that as "clear"
+    // would delete a credential merely by saving an unrelated field on the same card.
+    if (!filled.length) return
+    // Merge over what is stored so a partially filled form keeps the values it did not show again.
+    const key = secretKey(this.host.machine.stateDir)
     let previous: Record<string, string> = {}
     const sealed = this.host.store.get(KV.sources.secret(id))
     if (sealed !== undefined) { try { previous = unseal(key, sealed) } catch { previous = {} } }

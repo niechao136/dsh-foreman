@@ -51,7 +51,10 @@ function SourceCard({ source }: { source: SourceView }) {
     refreshLabels={refreshLabels} fact={spec.type === 'fact' || !changed(spec.key) ? source.facts[spec.key] : undefined}
     clis={clis ?? source.clis}
     onRefreshClis={refreshClis}
-    secret={source.secret}
+    // The draft's credentials, not the Source's: the panel only ever receives which keys are set, with empty values, so
+    // binding the inputs to `source.secret` would reset every keystroke to '' and the box could not be typed into.
+    secret={value.secret}
+    setKeys={source.secretSet}
     onSecret={next => draft.edit({ ...value, secret: next })}
     onChange={next => draft.edit({ ...value, config: { ...value.config, [spec.key]: next } })} />
   const specs = source.fields.filter(spec => !spec.advanced)

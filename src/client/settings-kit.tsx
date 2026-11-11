@@ -323,11 +323,12 @@ function RowsField({ field, value, saved, onChange, labels, refreshLabels }: {
  */
 const TYPED = '__typed__'
 
-function CliField({ field, label, hint, value, clis, onRefreshClis, onChange, secret, onSecret, fact }: {
+function CliField({ field, label, hint, value, clis, onRefreshClis, onChange, secret, onSecret, fact, setKeys }: {
   field: Extract<FieldSpec, { type: 'cli' }>; label: string; hint: string; value: string
   clis: string[]; onRefreshClis?: () => Promise<string[]>; onChange: (next: string) => void
   secret?: Record<string, string>; onSecret?: (next: Record<string, string>) => void
   fact?: Localized | string | undefined
+  setKeys?: string[]
 }) {
   const { t, notify } = usePanel()
   const invalid = useFieldError(field.key)
@@ -371,13 +372,15 @@ function CliField({ field, label, hint, value, clis, onRefreshClis, onChange, se
     {refusal !== undefined && <ErrorLine error={refusal} />}
     {invalid !== undefined && <ErrorLine error={invalid} />}
     {field.secret && value !== '' && onSecret && <SecretFields spec={field.secret} value={secret ?? {}}
-      onChange={onSecret} />}
+      onChange={onSecret} setKeys={setKeys} />}
   </div>
 }
 
 /** The credential inputs of one CLI, as declared by the Source's `SecretSpec`. */
-function SecretFields({ spec, value, onChange }: {
+function SecretFields({ spec, value, onChange, setKeys = [] }: {
   spec: SecretSpec; value: Record<string, string>; onChange: (next: Record<string, string>) => void
+  /** Keys that already hold a stored value; their box stays blank and says so, because the panel never receives it. */
+  setKeys?: string[]
 }) {
   const { t } = usePanel()
   return <fieldset className="dt-secret">
@@ -387,27 +390,31 @@ function SecretFields({ spec, value, onChange }: {
       {spec.fields.map(item => <Field key={item.key} label={localized(t, item.label)}
         hint={item.hint ? localized(t, item.hint) : undefined}>
         <Input type={item.secret ? 'password' : 'text'} autoComplete="off" spellCheck={false} pattern={item.pattern}
+          placeholder={setKeys.includes(item.key) ? t('cliSecretKeep') : undefined}
           value={value[item.key] ?? ''} onChange={event => onChange({ ...value, [item.key]: event.target.value })} />
       </Field>)}
     </FieldGrid>
   </fieldset>
 }
 
-export function SourceField({ field, value, saved, fact, onChange, labels, refreshLabels, clis, onRefreshClis, secret, onSecret }: {
+export function SourceField({ field, value, saved, fact, onChange, labels, refreshLabels, clis, onRefreshClis, secret, onSecret, setKeys }: {
   field: FieldSpec; value: unknown; saved: unknown; fact: Localized | string | undefined; onChange: (next: unknown) => void
   labels: Record<string, string>
   refreshLabels?: () => Promise<string[]>
   /** Known binaries of this Source's CLI, and a way to rescan the machine. */
   clis?: string[]; onRefreshClis?: () => Promise<string[]>
-  /** Stored credential of this Source, if any, and a setter for the whole record. */
+  /** Stored credential of this Source: the draft's values, which start empty because the panel never receives one. */
   secret?: Record<string, string>; onSecret?: (next: Record<string, string>) => void
+  /** Keys that already have a stored value, so a blank box can say "leave unchanged" instead of looking empty. */
+  setKeys?: string[]
 }) {
   const { t, navigate } = usePanel()
   const label = localized(t, field.label), hint = localized(t, field.hint)
   switch (field.type) {
     case 'switch': return <SwitchRow label={label} hint={hint} checked={value === true} onChange={onChange} />
     case 'cli': return <CliField field={field} label={label} hint={hint} value={String(value ?? '')} clis={clis ?? []}
-      onRefreshClis={onRefreshClis} onChange={next => onChange(next)} secret={secret} onSecret={onSecret} fact={fact} />
+      onRefreshClis={onRefreshClis} onChange={next => onChange(next)} secret={secret} onSecret={onSecret} fact={fact}
+      setKeys={setKeys} />
     case 'select': return <Field label={label} hint={hint} path={field.key}>
       <SegmentedControl className="dt-segmented dt-field-segmented" label={label} value={String(value ?? field.options[0]!.value)}
         options={field.options.map(option => ({ value: option.value, label: localized(t, option.label) }))} onChange={onChange} />

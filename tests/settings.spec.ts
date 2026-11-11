@@ -168,3 +168,20 @@ it('hands the stored credential to the account check that runs during setup', as
   expect(argv!.some(part => part === 'GH_TOKEN=ghp_probe')).toBe(true)
 })
 
+
+/**
+ * An older secret row stores only the field key, without the variable name.
+ *
+ * Those rows predate the mapping, and an operator who already saved a token must not be silently signed out by the
+ * upgrade. Once the source kind is registered its declaration supplies the name, so the value keeps working.
+ */
+it('still injects a credential stored before the variable mapping existed', async () => {
+  h = await startRuntime((store, stateDir) => {
+    store.set(KV.sources.secret('github'), seal(secretKey(stateDir), { token: 'ghp_legacy' }))
+  })
+  // The kind registers after setup runs, so the legacy row is picked up on the next setup pass, which is what
+  // "re-check setup" performs.
+  await h.runtime.setup.run(h.runtime.store.settings())
+  const argv = h.probed.filter(line => line.includes('api') && line.includes('user')).at(-1)
+  expect(argv!.some(part => part === 'GH_TOKEN=ghp_legacy')).toBe(true)
+})

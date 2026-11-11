@@ -111,15 +111,22 @@ export class Setup {
       catch { continue /* A damaged row is reported by the CLI's own sign-in check. */ }
       for (const [name, value] of Object.entries(record)) {
         const [variable, key] = name.includes('=') ? name.split('=', 2) : [undefined, name]
-        // A bare key has no variable name to inject under; it can only be a record written before this mapping
-        // existed, and guessing a name would hand a token to the wrong program.
-        void key
-        if (variable && value !== '') values[variable] = value
+        // A bare key is a record written before the mapping existed. Once the source plugin has registered, its
+        // declaration supplies the variable name, so an older stored token keeps working instead of silently
+        // signing the CLI out; before registration there is nothing to ask and the value is skipped.
+        const fallback = variable === undefined && key !== undefined ? this.variableOf(instance.kind, key) : undefined
+        const target = variable ?? fallback
+        if (target && value !== '') values[target] = value
       }
     }
     return values
   }
 
+  /** The environment variable a Source kind exposes one credential field under, when that kind is registered. */
+  private variableOf(kind: string, key: string): string | undefined {
+    const field = this.host.sources.kind(kind)?.fields.find(item => item.type === 'cli')
+    return field && field.type === 'cli' ? field.secret?.fields.find(item => item.key === key)?.variable : undefined
+  }
   /**
    * Every executable a Source's CLI setting could name, for the settings card's dropdown and its refresh button.
    *

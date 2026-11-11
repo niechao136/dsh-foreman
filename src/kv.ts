@@ -40,7 +40,16 @@ export const KV = {
   queues: { relays: record<{ id: string; text: string }[]>('relay-queue'), unsubscribed: record<string[]>('subscription-results'),
     prompts: record<number | null>('prompt-notification'), settings: record<number | null>('settings-notification') },
   /** Per-Source resolved display names mapping a named ID (such as a Feishu chat ID) to its display name. */
-  sources: { labels: family<Record<string, string>, [source: string]>('source-labels:') },
+  sources: { labels: family<Record<string, string>, [source: string]>('source-labels:'),
+    /**
+     * Encrypted credentials of one Source's CLI, sealed by `infra/secrets.ts`.
+     *
+     * Stored per Source rather than per CLI binary: two Sources may name the same binary and still act as different
+     * accounts, and the value must never be handed to the other one.
+     */
+    secret: family<string, [source: string]>('source-secret:'),
+    /** Absolute paths of the CLI binaries a Source may name, remembered so the dropdown survives a page reload. */
+    clis: family<string[], [source: string]>('source-clis:') },
   /**
    * GitHub Source: notification cursor and pending retries; per-Repository-per-Issue/PR read cursor shared by notification and polled reads;
    * per-Repository per-stream cursor, start times by kind, and ETag; per-Repository default-branch CI state; and per-Thread CI fingerprint

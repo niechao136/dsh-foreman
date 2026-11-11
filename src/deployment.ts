@@ -1,7 +1,7 @@
 /** Plugin configuration and startup verification for repository access and agent CLI identities. */
 import { LIMITS } from './limits.ts'
 import { accessSync, constants, statSync } from 'node:fs'
-import { delimiter, isAbsolute, join } from 'node:path'
+import { delimiter, dirname, isAbsolute, join } from 'node:path'
 import type { Volatile } from '@deepseek-ai/cordis'
 import s from '@deepseek-ai/schemastery'
 import { z } from 'zod'
@@ -98,9 +98,9 @@ export function executable(name: string, path: string, exclude?: string): string
  * `gh` is the released name; `gh-cli` is what some package managers install. A deployment that needs another name
  * still types it, so this list only saves the common case.
  */
-const GITHUB_CLI_FALLBACKS = ['gh', 'gh-cli'] as const
+export const GITHUB_CLI_FALLBACKS = ['gh', 'gh-cli'] as const
 /** The spellings the Feishu bot CLI is installed under, tried after the configured name. */
-const FEISHU_CLI_FALLBACKS = ['lark-cli', 'larksuite-cli'] as const
+export const FEISHU_CLI_FALLBACKS = ['lark-cli', 'larksuite-cli'] as const
 
 /**
  * Well-known places a CLI is installed when it is not on the PATH the hub runs with.
@@ -181,6 +181,34 @@ export async function resolveDeployment(machine: Machine, github: unknown, probe
   }
   // 两个不同写法可能解析成同一个仓库；换回 canonical 名字后再去重一次。
   return { ...machine, repositories: [...new Set(repositories)], github: { cli, login: agent.login, noreply: `${agent.id}+${agent.login}@users.noreply.github.com` } }
+}
+
+/** Every directory a CLI could live in: the process PATH first, then the standard prefixes. */
+const searchDirectories = (path: string, exclude: string): string[] =>
+  [...path.split(delimiter).filter(dir => isAbsolute(dir) && !sameDirectory(dir, exclude)), ...knownDirectories('').map(file => dirname(file))]
+/**
+ * Every executable file a CLI name resolves to, in the order `discoverExecutable` would try them.
+ *
+ * The settings page offers these as a dropdown so an operator picks the real binary instead of typing a path, and a
+ * refresh lists what is on the machine now — after installing a CLI, the old single answer is exactly what misleads.
+ *
+ * @param name Typed name; `''` searches the `fallbacks` spellings, matching `discoverExecutable`.
+ * @returns Absolute paths with duplicates removed; empty when nothing was found.
+ */
+export function findExecutables(name: string, path: string, exclude: string, fallbacks: readonly string[]): string[] {
+  const spellings = name !== '' ? [name] : [...fallbacks]
+  const directories = searchDirectories(path, exclude)
+  const found: string[] = []
+  for (const spelling of spellings) {
+    // An absolute path is its own single candidate.
+    if (isAbsolute(spelling)) { try { executable(spelling, path, exclude); found.push(spelling) } catch { /* Not there. */ } continue }
+    for (const directory of directories) {
+      const candidate = join(directory, spelling)
+      try { executable(candidate, path, exclude) } catch { continue /* Not an executable file here. */ }
+      if (!found.includes(candidate)) found.push(candidate)
+    }
+  }
+  return found
 }
 
 /**

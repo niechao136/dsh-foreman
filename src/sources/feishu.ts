@@ -1,7 +1,7 @@
 /** Feishu source kind definition, policy synchronization, and Cordis plugin entry. */
 import type { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
-import { FeishuBotSchema } from '../deployment.ts'
+import { FEISHU_CLI_FALLBACKS, FeishuBotSchema } from '../deployment.ts'
 import { feishuLink, sendFeishu } from './feishu-channel.ts'
 import { feishuThreadContext } from './feishu-read.ts'
 import { refreshChatNames, runFeishu } from './feishu-loops.ts'
@@ -35,8 +35,17 @@ export const feishuKind: SourceKind<FeishuConfig> = {
   description: { zh: '接收下列群和私聊中发给机器人的消息，补收群历史并轮询订阅的线程。', en: 'Receives messages to the bot in these chats and direct messages, recovers chat history and polls subscribed Threads.' },
   schema: FeishuConfigSchema,
   fields: [
-    { key: 'cli', type: 'text', label: { zh: '机器人的 lark-cli', en: 'Bot lark-cli' },
-      hint: { zh: '命令名或绝对路径，指向只允许机器人身份（strict mode bot）的 lark-cli 配置；执行器以 lark-cli 调用它。保存时读取应用和机器人，然后重启 dsh-foreman。', en: 'A command name or absolute path of a lark-cli configuration that allows only the bot identity (strict mode bot); the Executor calls it as lark-cli. Saving reads the app and the bot, then restarts dsh-foreman.' } },
+    { key: 'cli', type: 'cli', fallbacks: FEISHU_CLI_FALLBACKS,
+      label: { zh: '机器人的 lark-cli', en: 'Bot lark-cli' },
+      hint: { zh: '从本机找到的程序里选一个；留空表示自动查找 lark-cli。选中后填写应用的 App ID 与 App Secret，执行器以它登录并调用。', en: 'Pick one of the programs found on this machine; empty means find lark-cli automatically. After choosing, enter the app\'s App ID and App Secret; the Executor signs in with them and calls the CLI.' },
+      secret: {
+        help: { zh: '飞书开放平台 › 凭证与基础信息', en: 'Feishu Open Platform › Credentials & basic info' },
+        fields: [
+          { key: 'appId', variable: 'LARKSUITE_CLI_APP_ID', pattern: 'cli_[A-Za-z0-9]+',
+            label: { zh: 'App ID', en: 'App ID' }, hint: { zh: '形如 cli_xxxxxxxxxxxxxxxx。', en: 'Looks like cli_xxxxxxxxxxxxxxxx.' } },
+          { key: 'appSecret', variable: 'LARKSUITE_CLI_APP_SECRET', secret: true,
+            label: { zh: 'App Secret', en: 'App Secret' }, hint: { zh: '加密保存在 foreman 数据库里，只在调用 CLI 时注入。', en: 'Stored encrypted in the foreman database, injected only when the CLI runs.' } },
+        ] } },
     { key: 'chats', type: 'rows', label: { zh: '接收的群', en: 'Chats' },
       hint: { zh: '“仅 @”只接收 @ 机器人的消息和已有工单的线程；“全部消息”也接收其余消息，评估可以按规则从中推断工作，需要机器人有读取全部消息的权限。', en: '"@ only" receives messages that mention the bot and Threads that have Tickets; "All" also receives the rest, from which Eval may infer work under the rules; the bot needs permission to read all messages.' },
       columns: [

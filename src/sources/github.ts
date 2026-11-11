@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { key, type Thread } from '../core/index.ts'
 import { sameName } from '../infra/text.ts'
-import { GithubAccountsSchema } from '../deployment.ts'
+import { GITHUB_CLI_FALLBACKS, GithubAccountsSchema } from '../deployment.ts'
 import { CliError, validItems, type Tally } from '../infra/commands.ts'
 import { ciCounts, ciFact, ciFailures, ciSummary, githubThreadContext, pullChecks } from './github-read.ts'
 import { branchCiTrigger, ciTrigger, commentTrigger, CommentSchema, githubAddress, githubThread, issueTrigger, IssueSchema, parseGithubThread, pullTrigger, SOURCE }
@@ -52,8 +52,16 @@ export const githubKind: SourceKind<GithubConfig> = {
     { key: 'repositories', type: 'rows', label: { zh: '监听的仓库', en: 'Repositories' },
       hint: { zh: '一行一个 owner/name。这个来源接收这些仓库的通知和讨论；保存时逐个检查智能体账号能否推送到它，然后重启 dsh-foreman。', en: 'One owner/name per row. This Source receives notifications and discussion from these repositories; saving checks for each that the agent account can push to it, then restarts dsh-foreman.' },
       columns: [{ key: 'repository', type: 'text', label: { zh: '仓库', en: 'Repository' }, pattern: '[a-z0-9_.\\-]+/[a-z0-9_.\\-]+' }] },
-    { key: 'cli', type: 'text', label: { zh: '智能体的 GitHub CLI', en: 'Agent GitHub CLI' },
-      hint: { zh: '命令名或绝对路径，通常是用 GH_CONFIG_DIR 登录智能体账号的 gh 包装脚本。智能体以它登录的账号行事，执行器以 gh 调用它。保存时检查它登录的账号能否推送到仓库，然后重启 dsh-foreman。', en: 'A command name or absolute path, usually a gh wrapper signed in to the agent account through GH_CONFIG_DIR. The agent acts as the account it is signed in to, and the Executor calls it as gh. Saving checks that this account can push to the repository, then restarts dsh-foreman.' } },
+    { key: 'cli', type: 'cli', fallbacks: GITHUB_CLI_FALLBACKS,
+      label: { zh: '智能体的 GitHub CLI', en: 'Agent GitHub CLI' },
+      hint: { zh: '从本机找到的程序里选一个；留空表示自动查找 gh。选中后填写这个账号的令牌，智能体以它登录的账号行事，执行器以 gh 调用它。', en: 'Pick one of the programs found on this machine; empty means find gh automatically. After choosing, enter that account\'s token; the agent acts as the account it is signed in to, and the Executor calls it as gh.' },
+      secret: {
+        help: { zh: 'GitHub › Settings › Developer settings › Personal access tokens', en: 'GitHub › Settings › Developer settings › Personal access tokens' },
+        fields: [
+          { key: 'token', variable: 'GH_TOKEN', secret: true,
+            label: { zh: '令牌', en: 'Token' },
+            hint: { zh: '需要 repo 与 read:org 权限；加密保存在 foreman 数据库里，只在调用 CLI 时注入。', en: 'Needs the repo and read:org scopes; stored encrypted in the foreman database and injected only when the CLI runs.' } },
+        ] } },
     { key: 'pollSeconds', type: 'number', advanced: true, min: 60, max: 3600, label: { zh: '轮询间隔 / 秒', en: 'Polling interval / seconds' }, hint: { zh: 'GitHub 要求更长间隔时以 GitHub 为准。', en: 'A longer interval requested by GitHub wins.' } },
     { key: 'failuresBeforeError', type: 'number', advanced: true, min: 1, max: 20, label: { zh: '连续失败几次后报告异常', en: 'Failed polls before reporting an error' }, hint: { zh: '单次网络中断会在下一次轮询时自动重试，不必报告。', en: 'A single network interruption is retried on the next poll and need not be reported.' } },
     { key: 'observeIssues', type: 'switch', label: { zh: '接收仓库里的新 Issue', en: 'Receive new Issues in the repository' },

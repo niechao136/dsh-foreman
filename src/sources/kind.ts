@@ -11,6 +11,18 @@ export interface Localized { zh: string; en: string }
 /** `advanced` folds a rarely changed field (such as a polling tunable) behind the card's Advanced section. */
 interface FieldBase { key: string; label: Localized; hint?: Localized; advanced?: true }
 /**
+ * The credentials a CLI needs for the account it acts as.
+ *
+ * Stored encrypted in the foreman database and handed to the CLI as environment variables, so nothing is written to
+ * the CLI's own configuration and a second CLI on the same machine cannot pick the account up by accident.
+ */
+export interface SecretSpec {
+  /** Where to learn what to type; opened from the card. */
+  help: Localized
+  /** The variables to ask for, in the order the form shows them. */
+  fields: { key: string; label: Localized; hint?: Localized; variable: string; secret?: true; pattern?: string }[]
+}
+/**
  * Configuration field specification; `rows` edits a list of records keyed by its first column, `choose` picks from
  * resolved source labels, and `fact` displays a read-only value from `facts`.
  */
@@ -19,6 +31,13 @@ export type FieldSpec =
   | FieldBase & { type: 'select'; options: { value: string; label: Localized }[] }
   | FieldBase & { type: 'number'; min: number; max: number }
   | FieldBase & { type: 'text'; pattern?: string; readonly?: boolean; choose?: Localized }
+  /**
+   * An executable the Source runs, picked from what the machine actually has.
+   *
+   * `choose` labels the empty option ("find it automatically"); `secret` names the credentials the CLI needs, which
+   * the card asks for once a value is chosen. `fallbacks` are the spellings a blank value searches for.
+   */
+  | FieldBase & { type: 'cli'; fallbacks: readonly string[]; secret?: SecretSpec }
   | FieldBase & { type: 'fact'; settings?: 'deployment' }
   | FieldBase & { type: 'rows'; columns: ({ key: string; label: Localized; type: 'text'; pattern?: string; optional?: boolean; choose?: Localized; refresh?: Localized } | { key: string; label: Localized; type: 'select'; options: { value: string; label: Localized }[] })[] }
 

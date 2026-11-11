@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, delimiter } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Config, diagnoseClis, executable, machineOf, resolveDeployment, resolveFeishuBot, type Machine, type Probe } from '../src/deployment.ts'
+import { Config, FEISHU_CLI_FALLBACKS, GITHUB_CLI_FALLBACKS, diagnoseClis, executable, findExecutables, machineOf, resolveDeployment, resolveFeishuBot, type Machine, type Probe } from '../src/deployment.ts'
 import { gitEnv } from './fixtures/git.ts'
 
 const exec = promisify(execFile)
@@ -141,5 +141,26 @@ describe('CLI diagnosis', () => {
   })
   it('finds the Feishu CLI once the Source names one', () => {
     expect(diagnoseClis(machine(), {}, { cli: 'lark-cli' }, cliPath()).feishu).toEqual({ state: 'found', path: join(dir, 'bin', 'lark-cli') })
+  })
+  /**
+   * The dropdown's data. A single answer was the bug: with `gh` installed in two places, or under both spellings, the
+   * operator needs to see and choose, and a scan that reports one path hides the other.
+   */
+  it('lists every candidate of a CLI, in the order discovery would try them', () => {
+    // A second directory with a `gh-cli` spelling: both are real candidates under the fallback list.
+    mkdirSync(join(dir, 'extra'), { recursive: true })
+    program(join(dir, 'extra', 'gh-cli'), 'exit 0')
+    const path = [join(dir, 'bin'), join(dir, 'extra')].join(delimiter)
+    const found = findExecutables('', path, join(dir, 'state', 'worker-bin'), GITHUB_CLI_FALLBACKS)
+    expect(found).toEqual([join(dir, 'bin', 'gh'), join(dir, 'extra', 'gh-cli')])
+    // A typed name searches only that spelling: a wrong name must not quietly list a different binary.
+    expect(findExecutables('gh-cli', path, join(dir, 'state', 'worker-bin'), GITHUB_CLI_FALLBACKS))
+      .toEqual([join(dir, 'extra', 'gh-cli')])
+    expect(findExecutables('lark-cli', path, join(dir, 'state', 'worker-bin'), FEISHU_CLI_FALLBACKS))
+      .toEqual([join(dir, 'bin', 'lark-cli')])
+    // A name nothing provides lists nothing, rather than falling back to a different binary.
+    expect(findExecutables('larksuite-cli', path, join(dir, 'state', 'worker-bin'), FEISHU_CLI_FALLBACKS)).toEqual([])
+    // The worker shims are never candidates: they are the fail-closed stand-ins, not a CLI.
+    expect(findExecutables('gh', join(dir, 'state', 'worker-bin'), join(dir, 'state', 'worker-bin'), GITHUB_CLI_FALLBACKS)).toEqual([])
   })
 })

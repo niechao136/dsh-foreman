@@ -1,16 +1,22 @@
 /** Probes repository and account CLIs, configures the worker execution environment and command shims, and tracks setup readiness. */
 import type { Context } from '@deepseek-ai/cordis'
 import { UserError } from '../core/index.ts'
-import { ACCOUNT_PROBES, resolveDeployment, resolveFeishuBot, workerProbe, type Deployment, type Machine } from '../deployment.ts'
+import { ACCOUNT_PROBES, FEISHU_CLI_FALLBACKS, GITHUB_CLI_FALLBACKS, findExecutables, resolveDeployment, resolveFeishuBot, workerProbe, type Deployment, type Machine } from '../deployment.ts'
 import { agentVariables, applyEnvironment, verifyEnvironment, withoutDirectory, workerBin, writeEnvironment } from '../infra/environment.ts'
 import type { Settings, SettingsBlock } from '../policy.ts'
 import type { SourceRegistry } from '../sources/registry.ts'
+import type { Store } from './store.ts'
+import { KV } from '../kv.ts'
+import { secretKey, unseal } from '../infra/secrets.ts'
 import { SetupError, type SetupProblem } from '../setup.ts'
 
 export interface SetupHost {
   readonly context: Context
   readonly machine: Machine
   readonly lifetime: AbortSignal
+  /** Saved settings, read for each Source's stored CLI credential. */
+  readonly store: Pick<Store, 'get'>
+  readonly sources: SourceRegistry
   restart(): void
 }
 
@@ -84,6 +90,45 @@ export class Setup {
     if (this.resolved) await writeEnvironment(this.resolved, blocked)
   }
   restore(): void { this.restoreEnvironment?.(); this.restoreEnvironment = undefined }
+  /**
+   * The environment variables carrying each Source's stored credential.
+   *
+   * The variable names come from the Source kind's `secret` declaration, so a new Source adds credentials without
+   * touching this method. A credential that cannot be decrypted is skipped, not fatal: the CLI then simply fails its
+   * own sign-in check and setup reports that, which names the real problem better than a crash here.
+   */
+  private credentials(): Record<string, string> {
+    const { store, sources } = this.host
+    const values: Record<string, string> = {}
+    for (const instance of sources.instances()) {
+      const spec = sources.kind(instance.kind)?.fields.find(field => field.type === 'cli')
+      if (!spec || spec.type !== 'cli' || !spec.secret) continue
+      const sealed = store.get(KV.sources.secret(instance.id))
+      if (sealed === undefined) continue
+      let record: Record<string, string>
+      try { record = unseal(secretKey(this.host.machine.stateDir), sealed) }
+      catch { continue /* A damaged row is reported by the CLI's own sign-in check. */ }
+      for (const item of spec.secret.fields) {
+        const value = record[item.key]
+        if (value !== undefined && value !== '') values[item.variable] = value
+      }
+    }
+    return values
+  }
+  /**
+   * Every executable a Source's CLI setting could name, for the settings card's dropdown and its refresh button.
+   *
+   * Scanned on demand rather than remembered: after an operator installs the CLI, the previous single answer is
+   * exactly what misleads, and a restart should not be the price of learning the truth.
+   *
+   * @param id Source kind id (`github` or `feishu`); an unknown id yields an empty list rather than an error.
+   */
+  cliCandidates(id: string): string[] {
+    const fallbacks = id === 'github' ? GITHUB_CLI_FALLBACKS : id === 'feishu' ? FEISHU_CLI_FALLBACKS : undefined
+    if (!fallbacks) return []
+    try { return findExecutables('', this.path, workerBin(this.host.machine.stateDir), fallbacks) }
+    catch { return [] /* Discovery is a listing; a scan failure must not break the settings page. */ }
+  }
   /** Probes CLIs the way worker shells run them, using `stateDir` as `cwd` since it exists even before the repository clone is valid. */
   private probe() {
     const { context, machine, lifetime } = this.host
@@ -105,7 +150,9 @@ export class Setup {
       throw new SetupError('environmentFailed', { output: error instanceof Error ? error.message : String(error) })
     }
     await writeEnvironment(resolved, settings.executor.blockedCommands).catch(machineProblem)
-    this.restoreEnvironment = applyEnvironment(this.variables, machine.stateDir, this.path)
+    // Credentials are injected at the same point as the rest of the agent environment, so a worker and the host's own
+    // CLI calls sign in as the same account, and neither one reads a token from the operator's shell.
+    this.restoreEnvironment = applyEnvironment({ ...this.variables, ...this.credentials() }, machine.stateDir, this.path)
     await verifyEnvironment(resolved, context.subprocess, lifetime).catch((error: unknown) => {
       this.restore()
       machineProblem(error)

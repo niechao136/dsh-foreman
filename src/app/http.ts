@@ -65,6 +65,8 @@ export interface HttpHost {
   links(): LinkTarget
   ticketEnvironment(ticket: Ticket): Variable[]
   checkSetup(): void
+  /** Every executable a Source's CLI setting could name, rescanned on each call. */
+  cliCandidates(id: string): string[]
   requestPass(): void
   models(): Promise<ModelCatalog>
   /** Every registered device, revoked ones included. */
@@ -290,6 +292,8 @@ function routes(runtime: HttpHost): Routes {
     },
     'GET settings': () => settingsView(store, runtime.sources, runtime.health, setupState(runtime), runtime.machine.stateDir),
     'POST sources/:id/labels': ({ params }) => runtime.settings.refreshLabels(params.id),
+    // 每次请求都重新扫一遍磁盘：装完 CLI 不该为了看到它而重启 dsh-foreman。
+    'GET sources/:id/clis': ({ params }) => ({ found: runtime.cliCandidates(params.id) }),
     'GET threads': ({ query }) => {
       const { filter, offset, limit } = ThreadsQuery.parse(query)
       return threadList(views(runtime), filter, offset, limit)

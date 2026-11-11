@@ -78,9 +78,40 @@ it('renders each Source\'s settings from its kind\'s fields and saves one Source
   expect(server.revisions['source:github']).toBe(6)
 })
 
+/**
+ * Selects "type a path" in the CLI dropdown and types one.
+ *
+ * The CLI field became a dropdown of what the machine has; typing a path is still supported, because a wrapper script
+ * (a gh signed in through GH_CONFIG_DIR) is how the documented deployment gives the agent its own account and it will
+ * never show up in a scan. A test that reached for the input directly would fail on the control rather than the rule.
+ */
+/**
+ * Types a CLI path into a source card.
+ *
+ * The picker is a dropdown of what the machine has, with a "type a path" option for a binary the scan missed (a gh
+ * wrapper signed in through GH_CONFIG_DIR is the documented deployment and never shows up in a scan). Once that option
+ * is chosen the control is a plain input, so a second call must not expect a <select> to still be there.
+ */
+async function chooseTypedPath(card: HTMLElement, path: string, label = '智能体的 GitHub CLI'): Promise<void> {
+  const select = [...card.querySelectorAll<HTMLSelectElement>('select.dt-select')]
+    .find(item => item.getAttribute('aria-label') === label)
+  if (select) {
+    const option = [...select.options].find(item => item.textContent === zh.cliTypePath)!
+    await act(async () => {
+      select.value = option.value
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await settle()
+  }
+  await type(field<HTMLInputElement>(label), path)
+}
+
+
 it('shows the account each CLI signs in as, and keeps a saved CLI on screen while dsh-foreman restarts', async () => {
   await mount()
   await click(tab(zh['tab.settings']))
+  // The settings payload arrives after the first render; wait for it before reading the card.
+  await settle()
   const github = all('.dt-card')[1]!
   expect(github.textContent).toContain('当前账号 @agent-bot')
   const labels = () => [...github.querySelectorAll('label')].map(label => label.textContent)
@@ -88,16 +119,19 @@ it('shows the account each CLI signs in as, and keeps a saved CLI on screen whil
   expect(github.textContent).toContain('监听的仓库')
   const repositories = () => [...github.querySelectorAll('.dt-rows-item .dt-row-label')].map(cell => cell.textContent)
   expect(repositories()).toEqual(['acme/widgets'])
-  expect(labels()).toEqual(['智能体的 GitHub CLI'])
+  // The CLI picker is not a <label> (it chooses from a list rather than naming one field), so only the credential
+  // fields and the advanced numbers appear here.
+  expect(labels()).toEqual(['令牌'])
   // A fact describes the saved value, so an edited CLI shows none until it is saved.
-  await type(field<HTMLInputElement>('智能体的 GitHub CLI'), 'gh-other')
+  // The CLI is a dropdown now; "type a path" is the option that still lets an operator name a binary the scan missed.
+  await chooseTypedPath(github, 'gh-other')
   expect(github.textContent).not.toContain('当前账号 @agent-bot')
   await click(zh.discard)
   expect(github.textContent).toContain('当前账号 @agent-bot')
   await click([...github.querySelectorAll<HTMLElement>('[data-disclosure-row]')].find(row => row.textContent?.includes('高级'))!)
-  expect(labels()).toEqual(['智能体的 GitHub CLI', '轮询间隔 / 秒', '连续失败几次后报告异常'])
+  expect(labels()).toEqual(['令牌', '轮询间隔 / 秒', '连续失败几次后报告异常'])
   expect(all('.dt-card')[0]!.textContent).toContain('当前机器人 Widgets Bot')
-  await type(field<HTMLInputElement>('智能体的 GitHub CLI'), '/opt/bin/gh-agent')
+  await chooseTypedPath(github, '/opt/bin/gh-agent')
   expect(github.textContent).toContain('保存会重启 dsh-foreman：2 个进行中的派工会中断，并带恢复说明重新开始。')
   await act(async () => { github.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) }); await settle()
   expect(server.settings.sources.github!.config).toMatchObject({ cli: '/opt/bin/gh-agent' })
@@ -170,7 +204,10 @@ it('shows a refused Source save with the output of the tool that failed on its o
   await click(tab(zh['tab.settings']))
   await click(find(zh['settingsGroup.source'], '.dt-settings-link'))
   const feishu = all('.dt-card')[0]!
-  await type(field<HTMLInputElement>('机器人的 lark-cli'), 'lark-broken')
+  // The fixture refuses a save whose CLI is "lark-broken", standing in for a CLI whose account check fails.
+  // The picker is a dropdown now, so that name has to go in through the "type a path" option.
+  await chooseTypedPath(feishu, 'lark-broken', '机器人的 lark-cli')
+
   await act(async () => { feishu.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) }); await settle()
   expect(feishu.querySelector('.dt-savebar [role="alert"]')?.textContent).toBe('机器人的 lark-cli 不可用。\nlark-cli: app secret missing')
 })
@@ -195,8 +232,8 @@ it('reads the settings again as soon as dsh-foreman answers after a save restart
   onTestFinished(() => { vi.useRealTimers() })
   at({ page: 'settings', query: { group: 'source' } })
   await mount()
-  await type(field<HTMLInputElement>('智能体的 GitHub CLI'), '/opt/bin/gh-agent')
   const github = all('.dt-card')[1]!
+  await chooseTypedPath(github, '/opt/bin/gh-agent')
   await act(async () => { github.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) }); await settle()
   expect(field('智能体的 GitHub CLI').matches(':disabled')).toBe(true)
   // dsh-foreman restarts: DSH answers with empty 404s, then it answers again.

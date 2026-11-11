@@ -36,6 +36,13 @@ export interface Api {
   'POST sidebar-dom': { body: { html: string; strategy: string }; response: { saved: boolean; path: string } }
   'GET settings': { response: SettingsView }
   'POST sources/:id/labels': { response: { added: string[] } }
+  /**
+   * Every executable a source's CLI setting could name, for the settings card's dropdown.
+   *
+   * The refresh button calls this again after a CLI is installed: the whole point is that the answer changes without
+   * restarting dsh-foreman, so it must be a request rather than a value baked into the settings payload.
+   */
+  'GET sources/:id/clis': { response: { found: string[] } }
   'GET threads': { query?: Paged & { filter?: ThreadFilter }; response: ThreadListView }
   'GET threads/:key': { query?: { limit?: number; before?: string; around?: string }; response: ThreadDetailView }
   'POST threads/:key/unsubscribe': { response: { removed: boolean; thread: string; context_delivery: Delivery } }

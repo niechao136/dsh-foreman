@@ -2,7 +2,7 @@
 import { cloneElement, createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement,
   type ReactNode } from 'react'
 import type { ApiResponse } from '../app/api.ts'
-import type { FieldSpec, Localized } from '../sources/kind.ts'
+import type { FieldSpec, Localized, SecretSpec } from '../sources/kind.ts'
 import { usePoll, type HistoryView, type Settings, type SettingsView, type SourceView } from './api.ts'
 import { Button, DisclosureRow, Icon, IconButton, InfoTip, Input, SegmentedControl, Switch } from './controls.tsx'
 import { useDraft, type DraftState } from './draft.tsx'
@@ -311,15 +311,103 @@ function RowsField({ field, value, saved, onChange, labels, refreshLabels }: {
     {invalid !== undefined && <ErrorLine error={invalid} />}
   </div>
 }
-export function SourceField({ field, value, saved, fact, onChange, labels, refreshLabels }: {
+/**
+ * The CLI picker: a dropdown of what the machine has, a refresh button, and the credential form once one is chosen.
+ *
+ * Why a dropdown rather than a path box: an operator cannot type the absolute path of an installed CLI from memory, and
+ * a typo produced a Source that silently never ran. The refresh button rescan exists because installing the CLI is
+ * exactly when the old answer is wrong.
+ *
+ * The credential fields appear once a CLI is chosen — before that there is no account to give credentials for, and
+ * asking earlier would be a form with no purpose.
+ */
+const TYPED = '__typed__'
+
+function CliField({ field, label, hint, value, clis, onRefreshClis, onChange, secret, onSecret, fact }: {
+  field: Extract<FieldSpec, { type: 'cli' }>; label: string; hint: string; value: string
+  clis: string[]; onRefreshClis?: () => Promise<string[]>; onChange: (next: string) => void
+  secret?: Record<string, string>; onSecret?: (next: Record<string, string>) => void
+  fact?: Localized | string | undefined
+}) {
+  const { t, notify } = usePanel()
+  const invalid = useFieldError(field.key)
+  const [refusal, setRefusal] = useState<string>()
+  const refresh = useAction(async () => {
+    if (!onRefreshClis) return
+    try {
+      const found = await onRefreshClis()
+      setRefusal(undefined)
+      notify(found.length ? t('cliRefreshFound', { count: String(found.length) }) : t('cliRefreshEmpty'))
+    } catch (failure) { setRefusal(errorText(failure)) }
+  })
+  // The stored value is shown even when the scan no longer reports it: a CLI that moved must stay visible so the
+  // operator can see what was configured instead of finding an empty box they did not clear.
+  const options = value !== '' && !clis.includes(value) ? [value, ...clis] : clis
+  // "Type a path" is a real option, not a fallback: a wrapper script (a gh signed in through GH_CONFIG_DIR) is the
+  // documented way to give an agent its own account, and it will never appear in a scan of standard directories.
+  const [typed, setTyped] = useState(false)
+  // The fact describes the SAVED value: an edited CLI reports no account until it is saved and probed again.
+  const note = localized(t, fact)
+  return <div className="dt-field">
+    <span className="dt-field-head">{label}{hint && <InfoTip text={hint} />}</span>
+    {note && <small className="dt-hint">{note}</small>}
+    <div className="dt-cli-row">
+      {typed
+        ? <Input value={value} placeholder="/usr/local/bin/gh" spellCheck={false} aria-label={label}
+          onChange={event => onChange(event.target.value)} />
+        : <select className="dt-select" aria-label={label} value={value}
+          onChange={event => {
+            if (event.target.value === TYPED) { setTyped(true); return }
+            onChange(event.target.value)
+          }}>
+          <option value="">{t('cliAutoFind', { names: field.fallbacks.join(', ') })}</option>
+          {options.map(option => <option key={option} value={option}>{option}</option>)}
+          <option value={TYPED}>{t('cliTypePath')}</option>
+        </select>}
+      <IconButton icon="refresh" size="sm" label={t('cliRefresh')}
+        onClick={() => { setTyped(false); void refresh.run() }} />
+    </div>
+    {!options.length && <Hint>{t('cliRefreshHint')}</Hint>}
+    {refusal !== undefined && <ErrorLine error={refusal} />}
+    {invalid !== undefined && <ErrorLine error={invalid} />}
+    {field.secret && value !== '' && onSecret && <SecretFields spec={field.secret} value={secret ?? {}}
+      onChange={onSecret} />}
+  </div>
+}
+
+/** The credential inputs of one CLI, as declared by the Source's `SecretSpec`. */
+function SecretFields({ spec, value, onChange }: {
+  spec: SecretSpec; value: Record<string, string>; onChange: (next: Record<string, string>) => void
+}) {
+  const { t } = usePanel()
+  return <fieldset className="dt-secret">
+    <legend>{t('cliSecretLegend')}</legend>
+    <Hint>{localized(t, spec.help) && `${t('cliSecretHelp')}${localized(t, spec.help)}`}</Hint>
+    <FieldGrid>
+      {spec.fields.map(item => <Field key={item.key} label={localized(t, item.label)}
+        hint={item.hint ? localized(t, item.hint) : undefined}>
+        <Input type={item.secret ? 'password' : 'text'} autoComplete="off" spellCheck={false} pattern={item.pattern}
+          value={value[item.key] ?? ''} onChange={event => onChange({ ...value, [item.key]: event.target.value })} />
+      </Field>)}
+    </FieldGrid>
+  </fieldset>
+}
+
+export function SourceField({ field, value, saved, fact, onChange, labels, refreshLabels, clis, onRefreshClis, secret, onSecret }: {
   field: FieldSpec; value: unknown; saved: unknown; fact: Localized | string | undefined; onChange: (next: unknown) => void
   labels: Record<string, string>
   refreshLabels?: () => Promise<string[]>
+  /** Known binaries of this Source's CLI, and a way to rescan the machine. */
+  clis?: string[]; onRefreshClis?: () => Promise<string[]>
+  /** Stored credential of this Source, if any, and a setter for the whole record. */
+  secret?: Record<string, string>; onSecret?: (next: Record<string, string>) => void
 }) {
   const { t, navigate } = usePanel()
   const label = localized(t, field.label), hint = localized(t, field.hint)
   switch (field.type) {
     case 'switch': return <SwitchRow label={label} hint={hint} checked={value === true} onChange={onChange} />
+    case 'cli': return <CliField field={field} label={label} hint={hint} value={String(value ?? '')} clis={clis ?? []}
+      onRefreshClis={onRefreshClis} onChange={next => onChange(next)} secret={secret} onSecret={onSecret} fact={fact} />
     case 'select': return <Field label={label} hint={hint} path={field.key}>
       <SegmentedControl className="dt-segmented dt-field-segmented" label={label} value={String(value ?? field.options[0]!.value)}
         options={field.options.map(option => ({ value: option.value, label: localized(t, option.label) }))} onChange={onChange} />

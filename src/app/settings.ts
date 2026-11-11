@@ -11,6 +11,8 @@ import { resolveRoleModel } from './role-models.ts'
 import { changedPaths, settingsNotice } from './notices.ts'
 import type { Sessions } from './sessions.ts'
 import { setupChanged, type Setup } from './setup.ts'
+import { seal, secretKey, unseal } from '../infra/secrets.ts'
+import type { Machine } from '../deployment.ts'
 import type { Store } from './store.ts'
 import { KV } from '../kv.ts'
 
@@ -51,8 +53,18 @@ const BLOCKS: Record<'policy' | 'eval' | 'executor' | 'routing' | 'source', Bloc
     merge: (settings, value) => ({ ...settings, routing: value as SettingsValue['routing'] }),
   },
   source: {
-    parse: (value, sources, id) => sources.validate(id, z.object({ enabled: z.boolean(), config: z.unknown() }).parse(value)),
-    merge: (settings, value, id) => ({ ...settings, sources: { ...settings.sources, [id]: value as SettingsValue['sources'][string] } }),
+    parse: (value, sources, id) => {
+      // The credential travels beside `config`, never inside it: it is not part of what the Source kind validates,
+      // and keeping it separate stops a Source's schema from ever seeing a token.
+      const { secret, ...rest } = z.object({ enabled: z.boolean(), config: z.unknown(),
+        secret: z.record(z.string(), z.string()).optional() }).parse(value)
+      const sourcesValue = sources.validate(id, rest)
+      return secret === undefined ? sourcesValue : { ...sourcesValue, secret }
+    },
+    merge: (settings, value, id) => {
+      const { secret: _secret, ...instance } = value as SettingsValue['sources'][string] & { secret?: Record<string, string> }
+      return { ...settings, sources: { ...settings.sources, [id]: instance } }
+    },
     // Only the management panel may switch source accounts.
     guard: (current, candidate, origin, sources) => { if (origin !== 'panel' && setupChanged(current, candidate, sources)) throw new UserError('panelOnlyAccounts') },
   },
@@ -60,7 +72,8 @@ const BLOCKS: Record<'policy' | 'eval' | 'executor' | 'routing' | 'source', Bloc
 
 /** Host dependencies used by `Settings`. */
 export interface SettingsHost {
-  readonly store: Pick<Store, 'settings' | 'saveSettings' | 'blockRevision' | 'atomic' | 'tickets' | 'get'>
+  readonly store: Pick<Store, 'settings' | 'saveSettings' | 'blockRevision' | 'atomic' | 'tickets' | 'get' | 'set'>
+  readonly machine: Machine
   readonly sources: SourceRegistry
   /** Notified when a settings save changes the policy version. */
   readonly engine: EngineForSettings
@@ -186,8 +199,12 @@ export class Settings {
       scope: (input: { source: string; meta: Record<string, unknown> }) => this.host.sources.scope(input, version) })
     const effects = before === after ? new Map() : policyEffects(store.tickets.open(), old, SettingsSchema.parse(settings), scope)
     const notified = [...effects.keys()]
+    // A credential typed on the card is sealed before it ever reaches the settings document, so neither the saved
+    // snapshot nor the version history holds a token in clear text.
+    const secret = kind === 'source' ? (parsed as { secret?: Record<string, string> }).secret : undefined
     store.atomic(() => {
       store.saveSettings(SettingsSchema.parse(settings), { source: origin, block, policyVersion: after, policyChanged: before !== after, notified })
+      if (secret !== undefined) this.writeSecret(id, secret)
       if (origin !== 'tool') sessions.notify(...settingsNotice(block, changedPaths(old, settings)))
       if (before !== after) engine.policyChanged(before, after, effects)
     })
@@ -270,5 +287,24 @@ export class Settings {
     const before = store.get(KV.sources.labels(id)) ?? {}
     const after = await kind.refreshLabels(this.host.sourceHost)
     return { added: Object.entries(after).filter(([key]) => !(key in before)).map(([, name]) => name).sort((a, b) => a.localeCompare(b)) }
+  }
+
+  /**
+   * Stores a Source's CLI credential, encrypted.
+   *
+   * An all-empty record deletes the stored credential instead of saving blanks: clearing the boxes is how an operator
+   * removes a token, and a saved empty value would run the CLI as nobody while looking configured.
+   */
+  private writeSecret(id: string, next: Record<string, string>): void {
+    const stateDir = this.host.machine.stateDir
+    const filled = Object.entries(next).filter(([, value]) => value !== '')
+    if (!filled.length) { this.host.store.set(KV.sources.secret(id), undefined); return }
+    // Merge over what is stored so a partially filled form keeps the values it did not show again (the panel never
+    // sends a stored secret back, so an empty box means "unchanged", not "clear").
+    const key = secretKey(stateDir)
+    let previous: Record<string, string> = {}
+    const sealed = this.host.store.get(KV.sources.secret(id))
+    if (sealed !== undefined) { try { previous = unseal(key, sealed) } catch { previous = {} } }
+    this.host.store.set(KV.sources.secret(id), seal(key, { ...previous, ...Object.fromEntries(filled) }))
   }
 }

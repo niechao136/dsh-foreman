@@ -88,6 +88,10 @@ type Settings = ReturnType<typeof SettingsSchema.parse>
 export interface PanelServer {
   joined?: Record<string, string>; joining?: Record<string, string>
   joinError?: string
+  /** What `GET sources/:id/clis` reports; a test sets it to stand in for what is installed on the machine. */
+  clis: string[]
+  /** A stored credential the fixture pretends has been saved, keyed as the Source declares it. */
+  secret?: Record<string, string>
   settings: Settings; revisions: Record<string, number>
   prompts: PromptsView
   /** The device list, as `GET /devices` answers it. */
@@ -146,6 +150,8 @@ function sourceSettings(): SourceView[] {
         revision: server.revisions[`source:${kind.kind}`] ?? 0,
       restarts: kind.setupFields ?? [], fields: kind.fields, facts: kind.facts?.(resolved()) ?? {},
       labels: kind.kind === 'feishu' ? { oc_team: '团队群', oc_other: '另一个群', ...server.joined } : {}, ...problem ? { problem } : {},
+      clis: kind.kind === 'github' ? ['/usr/bin/gh'] : ['/usr/bin/lark-cli'],
+      secret: server.secret ?? {}, secretSet: Object.keys(server.secret ?? {}).sort(),
       ...policy ? { policy } : {} }
   })
 }
@@ -267,6 +273,7 @@ function initial(): PanelServer {
   const defaults = { revision: 0, previousRevision: null, savedAt: '', source: 'defaults' }
   return {
     health: {}, down: false, pending: 0, opened: [], requests: [], misuse: [], queued: new Set(), dropped: [], failing: [],
+    clis: ['/usr/bin/gh', '/usr/local/bin/gh'],
     setup: { machine: MACHINE, problem: null, problems: [],
       accounts: { repositories: ['acme/widgets'], agent: 'agent-bot', feishu: { appId: 'cli_bot', brand: 'feishu', botId: 'ou_bot',
         name: 'Widgets Bot' } },
@@ -327,6 +334,8 @@ const ROUTES: { [K in keyof Api]: Route<K> } = {
   // 侧栏结构样本只用于诊断，测试里假存一份，不落盘。
   'POST sidebar-dom': { body: true, answer: ({ body }) => ({ saved: body.strategy !== '', path: '/tmp/sidebar-dom.html' }) },
   'GET settings': { answer: settingsView },
+  'GET sources/:id/clis': { answer: ({ params }) => ({ found: params.id === 'github'
+    ? server.clis : ['/usr/bin/lark-cli', '/opt/lark-cli'] }) },
   'POST sources/:id/labels': { answer: () => {
     // Label refresh failures come from the bot CLI and are returned verbatim.
     if (server.joinError) return refuse(500, server.joinError)

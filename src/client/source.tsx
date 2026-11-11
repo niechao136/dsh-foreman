@@ -1,5 +1,5 @@
 /** 每个来源的设置卡：卡片头（标题 + 启用开关）+ 字段 + 保存条。来源状态页已删除，状态与统计在概览里看。 */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FieldSpec } from '../sources/kind.ts'
 import type { SourceView } from './api.ts'
 import { DisclosureRow, Icon, Switch, Tag } from './controls.tsx'
@@ -9,8 +9,11 @@ import { ConfigHistory, FieldErrors, FieldGrid, Fields, invalidFields, SourceFie
 import { localized } from './text.ts'
 import { Card, CheckSetupButton, Empty, Hint, SetupMessage, StatusLine } from './widgets.tsx'
 
+/** A Source block as the card edits it: the stored value plus the credentials typed on this card. */
+type SourceValue = SourceView['value'] & { secret?: Record<string, string> }
+
 /**
- * 一个来源的设置卡：卡片头（标题 + 启用开关）+ 字段 + 保存条。
+ * One source's settings card: card head (title + enable switch) + fields + save bar.
  * 表单包在卡片外面，保存条因此是 .dt-card 的最后一个直接子元素（契约与 spec 都按这个位置取），
  * 而卡片本身走 Card，标题仍是 .dt-card-title（测试按标题找卡片）。
  */
@@ -19,9 +22,21 @@ function SourceCard({ source }: { source: SourceView }) {
   const { running, setup } = usePanelData()
   const { reload } = useSettings()
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  // The binaries a fresh scan reports. Scanned on mount because the settings payload is cached by the page, and a CLI
+  // installed a minute ago must not look absent until the next full reload.
+  const [clis, setClis] = useState<string[] | undefined>(undefined)
+  const refreshClis = async () => {
+    const { found } = await call('GET sources/:id/clis', { id: source.id })
+    setClis(found)
+    return found
+  }
+  useEffect(() => { void refreshClis().catch(() => setClis([])) }, [source.id])
   const refreshLabels = async () => { const { added } = await call('POST sources/:id/labels',
     { id: source.id }); await reload(); return added }
-  const draft = useBlockDraft(`source:${source.id}`, source.value, source.revision)
+  // Credentials typed on the card travel inside the draft value, so the ordinary submit path saves them and `dirty`
+  // notices a credential typed without any other change. The panel never receives a stored value back, so this starts
+  // empty and only the boxes the operator filled are sent; the server merges them over what it already has.
+  const draft = useBlockDraft<SourceValue>(`source:${source.id}`, source.value, source.revision)
   const value = draft.value
   const { problem, value: saved } = source
   const changed = (key: string) => String(value.config[key] ?? '') !== String(saved.config[key] ?? '')
@@ -34,6 +49,10 @@ function SourceCard({ source }: { source: SourceView }) {
   const field = (spec: FieldSpec) => <SourceField key={spec.key} field={spec} value={value.config[spec.key]} saved={saved.config[spec.key]}
     labels={source.labels}
     refreshLabels={refreshLabels} fact={spec.type === 'fact' || !changed(spec.key) ? source.facts[spec.key] : undefined}
+    clis={clis ?? source.clis}
+    onRefreshClis={refreshClis}
+    secret={source.secret}
+    onSecret={next => draft.edit({ ...value, secret: next })}
     onChange={next => draft.edit({ ...value, config: { ...value.config, [spec.key]: next } })} />
   const specs = source.fields.filter(spec => !spec.advanced)
   // rows 是宽控件（一行多格 + 行内增删），塞进两列栅格会被压成半列，所以只有全部是短字段时才用栅格。

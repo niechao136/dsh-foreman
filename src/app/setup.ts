@@ -78,12 +78,16 @@ export class Setup {
    * Verify account CLIs for a modified source block before saving, ignoring setup errors belonging to other blocks.
    * 扩展点：探测函数按 Source kind id 在 `ACCOUNT_PROBES` 里登记，没有登记的来源保存卡片时不做额外检查。
    */
-  async checkAccounts(block: SettingsBlock, settings: Settings): Promise<void> {
+  async checkAccounts(block: SettingsBlock, settings: Settings, secret?: Record<string, string>): Promise<void> {
     const { machine } = this.host
     const id = block.slice('source:'.length)
     const probe = ACCOUNT_PROBES[id]
     if (!probe) return
-    await probe(machine, settings.sources[id]?.config, this.probe()).catch((error: unknown) => {
+    // The credential typed on this very card, merged over what is stored: a save that introduces a token must be
+    // verified WITH that token, otherwise every first save is refused as "cannot read its account" and the operator
+    // can never get a token in.
+    const env = { ...this.credentials(), ...this.named(id, secret ?? {}) }
+    await probe(machine, settings.sources[id]?.config, this.probe(), this.path, env).catch((error: unknown) => {
       if (!(error instanceof SetupError) || error.place === id) throw error
     })
   }
@@ -126,6 +130,20 @@ export class Setup {
   }
 
 
+  /**
+   * Named environment variables for a credential record that has not been stored yet.
+   *
+   * The card sends field keys; the variable name comes from the Source kind, which is registered by the time the panel
+   * saves. An empty value means "unchanged", so it is skipped rather than blanking a stored secret.
+   */
+  private named(id: string, secret: Record<string, string>): Record<string, string> {
+    const values: Record<string, string> = {}
+    for (const [key, value] of Object.entries(secret)) {
+      const variable = this.variableOf(id, key)
+      if (variable && value !== '') values[variable] = value
+    }
+    return values
+  }
   /** The environment variable a Source kind exposes one credential field under, when that kind is registered. */
   private variableOf(kind: string, key: string): string | undefined {
     const field = this.host.sources.kind(kind)?.fields.find(item => item.type === 'cli')

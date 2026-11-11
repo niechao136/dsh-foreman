@@ -175,6 +175,8 @@ export class Settings {
     const rules = BLOCKS[kind as keyof typeof BLOCKS]
     if (kind === 'source' && !sources.kind(id)) throw new UserError('sourceNotInstalled', { source: id })
     const parsed = rules.parse(value, sources, id)
+    // The card's own credential, if any: it has to be presented to the account check that runs below.
+    const candidateSecret = kind === 'source' ? (parsed as { secret?: Record<string, string> }).secret : undefined
     const current = store.settings()
     const candidate = rules.merge(current, parsed, id)
     const model = block === 'eval' ? candidate.eval.model : block === 'executor' ? candidate.executor.model : null
@@ -184,7 +186,12 @@ export class Settings {
       catch (error) { throw new UserError('modelUnavailable', { block, error: error instanceof Error ? error.message : String(error) }) }
     }
     rules.guard?.(current, candidate, origin, sources)
-    if (setupChanged(current, candidate, sources)) await this.host.setup.checkAccounts(block, candidate)
+    // A credential change alone must run the account check: the operator typing a new token is exactly the moment the
+    // check exists for, and a config-only comparison would skip it.
+    const credentialChanged = Object.values(candidateSecret ?? {}).some(value => value !== '')
+    if (setupChanged(current, candidate, sources) || credentialChanged) {
+      await this.host.setup.checkAccounts(block, candidate, candidateSecret)
+    }
     if (stale()) throw new SettingsConflict('Settings changed during the checks. Reload before saving.')
     // Re-read current settings after async checks in case unrelated blocks were saved concurrently.
     const old = store.settings()
@@ -201,7 +208,7 @@ export class Settings {
     const notified = [...effects.keys()]
     // A credential typed on the card is sealed before it ever reaches the settings document, so neither the saved
     // snapshot nor the version history holds a token in clear text.
-    const secret = kind === 'source' ? (parsed as { secret?: Record<string, string> }).secret : undefined
+    const secret = candidateSecret
     store.atomic(() => {
       store.saveSettings(SettingsSchema.parse(settings), { source: origin, block, policyVersion: after, policyChanged: before !== after, notified })
       if (secret !== undefined) this.writeSecret(id, secret)

@@ -200,3 +200,26 @@ it('injects a credential that was stored before any source kind registered', asy
   const argv = h.probed.find(line => line.includes('api') && line.includes('user'))
   expect(argv!.some(part => part === 'GH_TOKEN=ghp_early')).toBe(true)
 })
+
+/**
+ * A save that introduces a token must be verified WITH that token.
+ *
+ * The account check runs before the credential is stored, so passing only the already-stored secret meant a first
+ * save could never succeed: the operator typed a valid token, the check ran `gh` without it, and the refused save was
+ * reported as "cannot read its account". That looked like the token itself was wrong.
+ */
+it('checks a new credential on the save that introduces it, before it is stored', async () => {
+  h = await startRuntime()
+  const { settings, store } = h.runtime
+  const block = settings.block('source:github')
+  const value = block.value as { enabled: boolean; config: Record<string, unknown> }
+  h.probed.length = 0
+  await settings.save('source:github', { ...value, secret: { token: 'ghp_brandnew' } }, block.revision, 'panel')
+  const probe = h.probed.find(line => line.includes('api') && line.includes('user'))
+  expect(probe).toBeDefined()
+  // The value under test: the check saw the token the operator had just typed, not an empty environment.
+  expect(probe!.some(part => part === 'GH_TOKEN=ghp_brandnew')).toBe(true)
+  // And it is stored afterwards.
+  expect(unseal(secretKey(h.directory), store.get(KV.sources.secret('github'))!))
+    .toEqual({ 'GH_TOKEN=token': 'ghp_brandnew' })
+})

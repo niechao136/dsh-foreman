@@ -298,7 +298,8 @@ export async function resolveFeishuBot(machine: Machine, feishu: unknown, probe:
  *
  * 扩展点：一个来源需要在保存卡片前验证 CLI 账号，就在这里登记一行；不登记等于保存时不做账号检查。
  */
-export const ACCOUNT_PROBES: Record<string, (machine: Machine, config: unknown, probe: Probe) => Promise<unknown>> = {
-  github: (machine, config, probe) => resolveDeployment(machine, config, probe),
-  feishu: (machine, config, probe) => resolveFeishuBot(machine, config, probe),
+export const ACCOUNT_PROBES: Record<string, (machine: Machine, config: unknown, probe: Probe, path?: string,
+  env?: Record<string, string>) => Promise<unknown>> = {
+  github: (machine, config, probe, path, env) => resolveDeployment(machine, config, probe, path, env),
+  feishu: (machine, config, probe, path, env) => resolveFeishuBot(machine, config, probe, path, env),
 }

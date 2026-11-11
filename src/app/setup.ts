@@ -98,23 +98,28 @@ export class Setup {
    * own sign-in check and setup reports that, which names the real problem better than a crash here.
    */
   private credentials(): Record<string, string> {
-    const { store, sources } = this.host
+    const { store } = this.host
     const values: Record<string, string> = {}
-    for (const instance of sources.instances()) {
-      const spec = sources.kind(instance.kind)?.fields.find(field => field.type === 'cli')
-      if (!spec || spec.type !== 'cli' || !spec.secret) continue
+    // Read straight from storage rather than through a source kind: setup runs before the source plugins register,
+    // so asking a kind for its variable names would silently find nothing and probe an unsigned CLI. Each record
+    // stores `VARIABLE=key` beside every value for exactly this reason.
+    for (const instance of this.host.sources.instances()) {
       const sealed = store.get(KV.sources.secret(instance.id))
       if (sealed === undefined) continue
       let record: Record<string, string>
       try { record = unseal(secretKey(this.host.machine.stateDir), sealed) }
       catch { continue /* A damaged row is reported by the CLI's own sign-in check. */ }
-      for (const item of spec.secret.fields) {
-        const value = record[item.key]
-        if (value !== undefined && value !== '') values[item.variable] = value
+      for (const [name, value] of Object.entries(record)) {
+        const [variable, key] = name.includes('=') ? name.split('=', 2) : [undefined, name]
+        // A bare key has no variable name to inject under; it can only be a record written before this mapping
+        // existed, and guessing a name would hand a token to the wrong program.
+        void key
+        if (variable && value !== '') values[variable] = value
       }
     }
     return values
   }
+
   /**
    * Every executable a Source's CLI setting could name, for the settings card's dropdown and its refresh button.
    *
@@ -137,8 +142,11 @@ export class Setup {
   private async resolve(settings: Settings): Promise<Deployment> {
     const { context, machine, lifetime } = this.host
     const probe = this.probe()
-    const deployment = await resolveDeployment(machine, settings.sources.github?.config, probe)
-    const feishu = await resolveFeishuBot(machine, settings.sources.feishu?.config, probe).catch((error: unknown) => {
+    // Resolved BEFORE the probes: the credential the operator just typed has to be presented by the very command that
+    // verifies it, and the worker environment that would otherwise carry it is only written further down.
+    const credentials = this.credentials()
+    const deployment = await resolveDeployment(machine, settings.sources.github?.config, probe, this.path, credentials)
+    const feishu = await resolveFeishuBot(machine, settings.sources.feishu?.config, probe, this.path, credentials).catch((error: unknown) => {
       if (!(error instanceof SetupError)) throw error
       this.problems[error.place] = error.problem
       context.logger.warn('dsh-foreman leaves the %s Source out: %s', error.place, error.message)
@@ -152,7 +160,7 @@ export class Setup {
     await writeEnvironment(resolved, settings.executor.blockedCommands).catch(machineProblem)
     // Credentials are injected at the same point as the rest of the agent environment, so a worker and the host's own
     // CLI calls sign in as the same account, and neither one reads a token from the operator's shell.
-    this.restoreEnvironment = applyEnvironment({ ...this.variables, ...this.credentials() }, machine.stateDir, this.path)
+    this.restoreEnvironment = applyEnvironment({ ...this.variables, ...credentials }, machine.stateDir, this.path)
     await verifyEnvironment(resolved, context.subprocess, lifetime).catch((error: unknown) => {
       this.restore()
       machineProblem(error)

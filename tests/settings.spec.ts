@@ -6,7 +6,7 @@ import { Setup } from '../src/app/setup.ts'
 import { SettingsConflict } from '../src/app/settings.ts'
 import { startRuntime, type Host } from './fixtures/host.ts'
 import { KV } from '../src/kv.ts'
-import { secretKey, unseal } from '../src/infra/secrets.ts'
+import { seal, secretKey, unseal } from '../src/infra/secrets.ts'
 
 let h: Host | undefined
 afterEach(async () => { await h?.stop(); h = undefined })
@@ -141,11 +141,30 @@ it('keeps a stored CLI credential when the card is saved with its boxes left bla
   await settings.save('source:github', { ...github, secret: { token: '' } }, revision, 'panel')
   const sealed = store.get(KV.sources.secret('github'))
   expect(sealed).toBeDefined()
-  expect(unseal(secretKey(h.runtime.machine.stateDir), sealed!)).toEqual({ token: 'ghp_first' })
+  expect(unseal(secretKey(h.runtime.machine.stateDir), sealed!)).toEqual({ 'GH_TOKEN=token': 'ghp_first' })
   // A non-empty value replaces it. The block is also changed, because an identical block is a no-op save that never
   // reaches the credential write.
   const changed = { ...github, config: { ...github.config, pollSeconds: 120 } }
   await settings.save('source:github', { ...changed, secret: { token: 'ghp_second' } },
     settings.block('source:github').revision, 'panel')
-  expect(unseal(secretKey(h.runtime.machine.stateDir), store.get(KV.sources.secret('github'))!)).toEqual({ token: 'ghp_second' })
+  expect(unseal(secretKey(h.runtime.machine.stateDir), store.get(KV.sources.secret('github'))!)).toEqual({ 'GH_TOKEN=token': 'ghp_second' })
 })
+
+/**
+ * The typed credential must reach the CLI during the check that uses it.
+ *
+ * End-to-end version of the bug: setup resolved the GitHub account before writing the worker environment, so the very
+ * command that verifies the token ran without it and reported "cannot read its account" for a valid token. This
+ * asserts the probe's own environment, not the environment applied afterwards.
+ */
+it('hands the stored credential to the account check that runs during setup', async () => {
+  // The credential is present before setup runs, which is the state a panel save leaves behind. It is written
+  // through the store's own seeding hook so the key file lives beside the database the runtime will read.
+  h = await startRuntime((store, stateDir) => {
+    store.set(KV.sources.secret('github'), seal(secretKey(stateDir), { 'GH_TOKEN=token': 'ghp_probe' }))
+  })
+  const argv = h.probed.find(line => line.includes('api') && line.includes('user'))
+  expect(argv).toBeDefined()
+  expect(argv!.some(part => part === 'GH_TOKEN=ghp_probe')).toBe(true)
+})
+

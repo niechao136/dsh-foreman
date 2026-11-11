@@ -19,7 +19,10 @@ const lark = (status: object, mode = 'bot', bot: object = { bot: { open_id: 'ou_
 const minimal = (overrides: Record<string, unknown> = {}) => ({ stateDir: join(dir, 'state'), ...overrides })
 const machine = (overrides: Partial<Machine> = {}): Machine => ({ ...machineOf(Config(minimal())), ...overrides })
 /** Runs commands like worker shells do, but locally: the stand-ins first on PATH, then the system's git. */
-const probe: Probe = async argv => (await exec(argv[0]!, argv.slice(1), { env: { PATH: path, HOME: dir } })).stdout
+const probe: Probe = async (argv, env) => (await exec(argv[0]!, argv.slice(1), { env: { PATH: path, HOME: dir, ...env } })).stdout
+/** Runs a node script the way a worker would: used where a shebang file cannot be spawned (Windows). */
+const nodeProbe: Probe = async (argv, env) => (await exec(process.execPath, [argv[0]!, ...argv.slice(1)],
+  { env: { PATH: path, HOME: dir, ...env } })).stdout
 const setupError = (place: string, code: string, values: Record<string, unknown> = {}) => expect.objectContaining({ place, code, values: expect.objectContaining(values) })
 
 beforeEach(async () => {
@@ -163,4 +166,35 @@ describe('CLI diagnosis', () => {
     // The worker shims are never candidates: they are the fail-closed stand-ins, not a CLI.
     expect(findExecutables('gh', join(dir, 'state', 'worker-bin'), join(dir, 'state', 'worker-bin'), GITHUB_CLI_FALLBACKS)).toEqual([])
   })
+})
+
+/**
+ * The credential must reach the command that verifies it.
+ *
+ * Setup resolves the agent's account before the worker environment is written, so a `gh` invoked without the token
+ * runs unsigned and reports "cannot read its account" for a token that is perfectly valid. A test that only checked
+ * "the environment is applied afterwards" would pass while the check above it failed, so this asserts the probe itself
+ * receives the value.
+ */
+it('presents the stored token to the very command that checks the account', async () => {
+  // A gh that is signed in only when GH_TOKEN is present, which is how a token-only deployment behaves.
+  // Written as node rather than a shebang script: on Windows a shebang file cannot be spawned, and the subject of this
+  // test is the token's reach, not the launcher.
+  const tokenGh = join(dir, 'bin', 'gh-token')
+  writeFileSync(tokenGh, [
+    '#!/usr/bin/env node',
+    "const args = process.argv.slice(2).join(' ')",
+    'if (!process.env.GH_TOKEN) { console.error("To get started with GitHub CLI, please run:  gh auth login"); process.exit(1) }',
+    "if (args === 'api user') console.log(JSON.stringify({ login: 'Agent-Bot', id: 7 }))",
+    "else if (args.startsWith('api repos/acme/')) console.log(JSON.stringify({ name: 'acme/widgets', push: true }))",
+    'else process.exit(1)',
+    '',
+  ].join('\n'))
+  chmodSync(tokenGh, 0o755)
+  const config = { repositories: [{ repository: 'acme/widgets' }], cli: tokenGh }
+  // Without the credential the very same CLI reports being signed out: this is the failure the operator saw.
+  await expect(resolveDeployment(machine(), config, nodeProbe, path)).rejects.toEqual(setupError('github', 'agentCliSignedOut'))
+  // With it, the account and its push access resolve.
+  await expect(resolveDeployment(machine(), config, nodeProbe, path, { GH_TOKEN: 'ghp_test' })).resolves
+    .toMatchObject({ repositories: ['acme/widgets'], github: { login: 'Agent-Bot' } })
 })

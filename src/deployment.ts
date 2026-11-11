@@ -138,11 +138,19 @@ export function discoverExecutable(name: string, path: string, exclude: string, 
   throw new Error(`no ${fallbacks[0] ?? 'command'} is an executable file: tried ${tried.join(', ')}`)
 }
 
-export type Probe = (argv: string[]) => Promise<string>
+/**
+ * Runs one command the way a worker shell would.
+ *
+ * `env` carries values the command needs but the process environment does not have. Credentials reach the worker only
+ * after setup resolves, so a check that must already be signed in has to pass its token here — otherwise it probes an
+ * unsigned `gh` and reports `agentCliSignedOut` for a token that is perfectly valid.
+ */
+export type Probe = (argv: string[], env?: Record<string, string>) => Promise<string>
 /** Run startup checks through DSH's worker subprocess service with worker shims removed from PATH so a `gh` wrapper script reaches the real binary. */
 export function workerProbe(subprocess: SubprocessRuntime, stateDir: string, cwd: string, signal: AbortSignal): Probe {
   const path = withoutDirectory(process.env.PATH ?? '', workerBin(stateDir))
-  return argv => runAsWorker(subprocess, ['env', `PATH=${path}`, ...argv], cwd, AbortSignal.any([signal, AbortSignal.timeout(60_000)]))
+  return (argv, env) => runAsWorker(subprocess, ['env', `PATH=${path}`, ...Object.entries(env ?? {}).map(([name, value]) => `${name}=${value}`),
+    ...argv], cwd, AbortSignal.any([signal, AbortSignal.timeout(60_000)]))
 }
 
 const GithubUser = z.object({ login: z.string().regex(/^[A-Za-z0-9-]+$/), id: z.number().int().positive() })
@@ -154,7 +162,8 @@ function parsed<T>(schema: z.ZodType<T>, text: string): T | undefined {
   return result.success ? result.data : undefined
 }
 /** Verify the agent's GitHub CLI identity and push access to every configured repository. */
-export async function resolveDeployment(machine: Machine, github: unknown, probe: Probe, path = process.env.PATH ?? ''): Promise<Deployment> {
+export async function resolveDeployment(machine: Machine, github: unknown, probe: Probe, path = process.env.PATH ?? '',
+  env: Record<string, string> = {}): Promise<Deployment> {
   const { stateDir } = machine
   const accounts = GithubAccountsSchema.parse(github ?? {})
   // 同一个仓库可能被写进两行；按 owner/name 去重后再逐个检查。
@@ -166,13 +175,15 @@ export async function resolveDeployment(machine: Machine, github: unknown, probe
   // An empty `cli` was a setup error; it now means "find the agent's gh", so a default installation needs no path typed.
   try { cli = discoverExecutable(accounts.cli, path, workerBin(stateDir), GITHUB_CLI_FALLBACKS) }
   catch (error) { throw new SetupError(accounts.cli === '' ? 'agentCliUnset' : 'agentCliMissing', { output: reason(error) }) }
-  const text = await probe([cli, 'api', 'user']).catch((error: unknown) => { throw new SetupError('agentCliSignedOut', { output: reason(error) }) })
+  // The credential goes with every call: setup resolves the account before the worker environment exists, so without
+  // this the agent's gh runs unsigned and a valid token is reported as "cannot read its account".
+  const text = await probe([cli, 'api', 'user'], env).catch((error: unknown) => { throw new SetupError('agentCliSignedOut', { output: reason(error) }) })
   const agent = parsed(GithubUser, text)
   if (!agent) throw new SetupError('agentCliNoAccount')
   // 每个仓库单独检查：canonical 名字（仓库改名后仍能匹配通知）与推送权限，第一个失败的仓库就报告出来。
   const repositories: string[] = []
   for (const remote of wanted) {
-    const access = parsed(RepositoryAccess, await probe([cli, 'api', `repos/${remote}`, '--jq', '{name: .full_name, push: .permissions.push}']).catch((error: unknown) => {
+    const access = parsed(RepositoryAccess, await probe([cli, 'api', `repos/${remote}`, '--jq', '{name: .full_name, push: .permissions.push}'], env).catch((error: unknown) => {
       throw new SetupError('repositoryUnreadable', { account: agent.login, repository: remote, output: reason(error) })
     }))
     if (!access) throw new SetupError('repositoryUnreported', { repository: remote })
@@ -257,7 +268,8 @@ const BotInfo = z.object({ bot: z.object({ open_id: z.string().regex(/^ou_[A-Za-
  * Verify that the configured Feishu CLI is authenticated as a bot and restricted to strict mode `bot`.
  * Workers invoke this CLI as `lark-cli`, so a CLI that also permits a user identity would let workers act as that user.
  */
-export async function resolveFeishuBot(machine: Machine, feishu: unknown, probe: Probe, path = process.env.PATH ?? ''): Promise<FeishuBot | undefined> {
+export async function resolveFeishuBot(machine: Machine, feishu: unknown, probe: Probe, path = process.env.PATH ?? '',
+  env: Record<string, string> = {}): Promise<FeishuBot | undefined> {
   const { cli: name } = FeishuBotSchema.parse(feishu ?? {})
   // No CLI named is no Feishu bot: a deployment without Feishu must not start one. A named CLI is discovered, so the
   // operator can type `lark-cli` alone and let the hub find where it lives.
@@ -265,7 +277,9 @@ export async function resolveFeishuBot(machine: Machine, feishu: unknown, probe:
   const fail = (error: unknown): never => { throw error instanceof SetupError ? error : new SetupError('feishuCliFailed', { output: reason(error) }) }
   let cli = ''
   try { cli = discoverExecutable(name, path, workerBin(machine.stateDir), FEISHU_CLI_FALLBACKS) } catch (error) { fail(error) }
-  const run = (...args: string[]): Promise<string> => probe(['env', 'LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1', 'LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1', cli, ...args]).catch(fail)
+  // Same as the GitHub probe: the app credential is passed per call, because the worker environment that carries it
+  // does not exist yet while setup is resolving this bot.
+  const run = (...args: string[]): Promise<string> => probe(['env', 'LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1', 'LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1', cli, ...args], env).catch(fail)
   const text = await run('auth', 'status')
   const status = parsed(AuthStatus, text.slice(text.indexOf('{')))
   if (!status) return fail(new SetupError('feishuNoApp'))

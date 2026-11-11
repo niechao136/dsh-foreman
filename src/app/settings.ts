@@ -302,11 +302,21 @@ export class Settings {
     // Nothing filled: keep whatever is stored. The form renders empty on every load, so treating that as "clear"
     // would delete a credential merely by saving an unrelated field on the same card.
     if (!filled.length) return
+    // The record carries the variable name beside each value. Setup runs before the source plugins register their
+    // kinds, so it cannot ask a kind how to expose a credential; storing the mapping makes the injection independent
+    // of that ordering.
+    const declared = this.host.sources.kind(id)?.fields.find(field => field.type === 'cli')
+    const variables = declared && declared.type === 'cli' ? declared.secret : undefined
+    const named: Record<string, string> = {}
+    for (const [key, value] of filled) {
+      const variable = variables?.fields.find(field => field.key === key)?.variable
+      named[variable ? `${variable}=${key}` : key] = value
+    }
     // Merge over what is stored so a partially filled form keeps the values it did not show again.
     const key = secretKey(this.host.machine.stateDir)
     let previous: Record<string, string> = {}
     const sealed = this.host.store.get(KV.sources.secret(id))
     if (sealed !== undefined) { try { previous = unseal(key, sealed) } catch { previous = {} } }
-    this.host.store.set(KV.sources.secret(id), seal(key, { ...previous, ...Object.fromEntries(filled) }))
+    this.host.store.set(KV.sources.secret(id), seal(key, { ...previous, ...named }))
   }
 }

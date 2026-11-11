@@ -5,6 +5,7 @@ import { ACCOUNT_PROBES, FEISHU_CLI_FALLBACKS, GITHUB_CLI_FALLBACKS, findExecuta
 import { agentVariables, applyEnvironment, verifyEnvironment, withoutDirectory, workerBin, writeEnvironment } from '../infra/environment.ts'
 import type { Settings, SettingsBlock } from '../policy.ts'
 import type { SourceRegistry } from '../sources/registry.ts'
+import type { Key } from '../kv.ts'
 import type { Store } from './store.ts'
 import { KV } from '../kv.ts'
 import { secretKey, unseal } from '../infra/secrets.ts'
@@ -15,7 +16,7 @@ export interface SetupHost {
   readonly machine: Machine
   readonly lifetime: AbortSignal
   /** Saved settings, read for each Source's stored CLI credential. */
-  readonly store: Pick<Store, 'get'>
+  readonly store: Pick<Store, 'get' | 'keys'>
   readonly sources: SourceRegistry
   restart(): void
 }
@@ -100,27 +101,30 @@ export class Setup {
   private credentials(): Record<string, string> {
     const { store } = this.host
     const values: Record<string, string> = {}
-    // Read straight from storage rather than through a source kind: setup runs before the source plugins register,
-    // so asking a kind for its variable names would silently find nothing and probe an unsigned CLI. Each record
-    // stores `VARIABLE=key` beside every value for exactly this reason.
-    for (const instance of this.host.sources.instances()) {
-      const sealed = store.get(KV.sources.secret(instance.id))
+    // Enumerated from storage, not from the source registry: setup runs before the source plugins register their
+    // kinds, so `sources.instances()` is empty here and a loop over it silently injected nothing — the exact reason
+    // a valid token still produced agentCliSignedOut. Each record stores `VARIABLE=key` beside its value, so the
+    // variable name needs no kind either.
+    for (const name of store.keys(KV.sources.secret.prefix)) {
+      const sealed = store.get(name as Key<string>)
       if (sealed === undefined) continue
       let record: Record<string, string>
       try { record = unseal(secretKey(this.host.machine.stateDir), sealed) }
       catch { continue /* A damaged row is reported by the CLI's own sign-in check. */ }
-      for (const [name, value] of Object.entries(record)) {
-        const [variable, key] = name.includes('=') ? name.split('=', 2) : [undefined, name]
+      const id = name.slice(KV.sources.secret.prefix.length)
+      for (const [field, value] of Object.entries(record)) {
+        const [variable, key] = field.includes('=') ? field.split('=', 2) : [undefined, field]
         // A bare key is a record written before the mapping existed. Once the source plugin has registered, its
         // declaration supplies the variable name, so an older stored token keeps working instead of silently
         // signing the CLI out; before registration there is nothing to ask and the value is skipped.
-        const fallback = variable === undefined && key !== undefined ? this.variableOf(instance.kind, key) : undefined
+        const fallback = variable === undefined && key !== undefined ? this.variableOf(id, key) : undefined
         const target = variable ?? fallback
         if (target && value !== '') values[target] = value
       }
     }
     return values
   }
+
 
   /** The environment variable a Source kind exposes one credential field under, when that kind is registered. */
   private variableOf(kind: string, key: string): string | undefined {

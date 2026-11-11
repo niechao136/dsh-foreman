@@ -185,3 +185,18 @@ it('still injects a credential stored before the variable mapping existed', asyn
   const argv = h.probed.filter(line => line.includes('api') && line.includes('user')).at(-1)
   expect(argv!.some(part => part === 'GH_TOKEN=ghp_legacy')).toBe(true)
 })
+
+/**
+ * Credentials must be discoverable before the source plugins register.
+ *
+ * Setup runs before them, so `sources.instances()` is empty at that point. Enumerating secrets from the registry
+ * therefore injected nothing, and a perfectly valid token still produced agentCliSignedOut. This asserts the value
+ * reaches the probe in that early window.
+ */
+it('injects a credential that was stored before any source kind registered', async () => {
+  h = await startRuntime((store, stateDir) => {
+    store.set(KV.sources.secret('github'), seal(secretKey(stateDir), { 'GH_TOKEN=token': 'ghp_early' }))
+  })
+  const argv = h.probed.find(line => line.includes('api') && line.includes('user'))
+  expect(argv!.some(part => part === 'GH_TOKEN=ghp_early')).toBe(true)
+})

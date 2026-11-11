@@ -57,3 +57,19 @@ describe('credential storage', () => {
     expect(readFileSync(keyFile(dir)).length).toBe(16)
   })
 })
+
+/**
+ * A credential stored by an earlier build was double-encoded, so the sealed text arrived wrapped in quotes.
+ *
+ * Unwrapping it keeps an existing token readable across the upgrade; a test that only covered fresh writes would let
+ * every operator who had already saved a token be signed out by the fix meant to help them.
+ */
+
+it('reads a credential stored by an earlier build, which double-encoded the sealed text', () => {
+  const key = secretKey(dir)
+  const sealed = seal(key, { 'GH_TOKEN=token': 'ghp_legacy' })
+  // The old write path left a JSON string literal in the record, quotes included.
+  expect(unseal(key, JSON.stringify(sealed))).toEqual({ 'GH_TOKEN=token': 'ghp_legacy' })
+  // New writes are unquoted and still readable, so the two shapes coexist.
+  expect(unseal(key, sealed)).toEqual({ 'GH_TOKEN=token': 'ghp_legacy' })
+})

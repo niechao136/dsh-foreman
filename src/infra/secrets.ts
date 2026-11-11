@@ -73,7 +73,11 @@ export function seal(key: Buffer, value: Record<string, string>): string {
  *   empty record would silently run the CLI as nobody.
  */
 export function unseal(key: Buffer, sealed: string): Record<string, string> {
-  const [version, iv, tag, body] = sealed.split(':')
+  // A row written by 0.5.x reached the database after an extra JSON.stringify, so the stored text is a quoted
+  // string literal (`"v1:…"`) rather than the sealed form. Unwrapping it here keeps an already-saved token readable
+  // instead of signing the CLI out on upgrade; new rows are written unquoted.
+  const text = sealed.startsWith('"') ? String(JSON.parse(sealed)) : sealed
+  const [version, iv, tag, body] = text.split(':')
   if (version !== VERSION || !iv || !tag || body === undefined) throw new Error(`Stored credential is not ${VERSION} format`)
   const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(iv, 'base64url'))
   decipher.setAAD(Buffer.from(VERSION))

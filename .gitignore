@@ -7,3 +7,4 @@ coverage/
 .DS_Store
 .dsh-project-memory/
 full-serial.log
+full-*.log

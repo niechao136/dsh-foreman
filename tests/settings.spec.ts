@@ -243,6 +243,25 @@ it('keeps the resolved credential in the environment of the CLI calls the host i
 })
 
 /**
+ * The command environment must be read when a command runs, not when the Commands object is built.
+ *
+ * `Runtime` constructs `Commands` before setup resolves anything, so passing the environment record by value froze an
+ * empty credential map into every later command. The host's own `gh` then ran unsigned while the panel showed a
+ * configured token — the actual cause of the endless `gh auth login` poll failures.
+ */
+it('applies a credential resolved after the Commands object was built', async () => {
+  h = await startRuntime((store, stateDir) => {
+    store.set(KV.sources.secret('github'), seal(secretKey(stateDir), { 'GH_TOKEN=token': 'ghp_later' }))
+  })
+  // Undo the fixture's stub of `run`: this assertion is about what a real command receives, and `node` exists
+  // everywhere the suite runs.
+  vi.restoreAllMocks()
+  await h.runtime.setup.run(h.runtime.store.settings())
+  const output = await h.runtime.commands.run(process.execPath, ['-e', 'process.stdout.write(process.env.GH_TOKEN ?? "")'])
+  expect(output).toBe('ghp_later')
+})
+
+/**
  * Replacing only the token must restart setup so the new value is actually used.
  *
  * A credential lives outside the settings document, so a card whose configuration is unchanged produces an identical

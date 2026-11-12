@@ -150,7 +150,8 @@ export class Runtime extends Service implements SourceHost {
       const masterId = this.masterId = store.get(KV.runtime.masterId) ?? `orchestrator-${key(machine.stateDir)}`
       store.set(KV.runtime.masterId, masterId)
       for (const [workspaceId, sessionId] of Object.entries(store.get(KV.runtime.masters) ?? {})) this.masters.set(workspaceId, sessionId)
-      const commands = this.commands = new Commands(() => setup.deployment, setup.commandEnvironment, this.lifetime)
+      // A function, not a record: the env carries the credentials setup resolves, and setup runs after this point.
+      const commands = this.commands = new Commands(() => setup.deployment, () => setup.commandEnvironment, this.lifetime)
       const board = this.board
       const effects = this.effects = new Effects(store, board)
       const sources = this.sources = new SourceRegistry(() => store.settings(), board, kind => {

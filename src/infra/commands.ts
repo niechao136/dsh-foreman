@@ -41,6 +41,8 @@ function ended(error: unknown): string {
   return typeof code === 'string' ? `could not run: ${code}` : 'failed'
 }
 export interface Tally { skipped: number }
+/** Command environment overrides: a record, or a function read on each call so values resolved later still apply. */
+export type Environment = Record<string, string | undefined> | (() => Record<string, string | undefined>)
 /** Parses array elements against a schema, skipping invalid items and incrementing `tally.skipped`. */
 export function validItems<T>(item: z.ZodType<T>, list: readonly unknown[], tally?: Tally): T[] {
   const items = list.flatMap(value => { const parsed = item.safeParse(value); return parsed.success ? [parsed.data] : [] })
@@ -63,8 +65,19 @@ export class Commands {
    * @param environment - variables overriding `process.env` for every command (such as isolated git settings).
    * @param repository - 绑定的仓库；不给时用部署里的第一个仓库。
    */
-  constructor(private readonly resolved: () => Deployment, private readonly environment: Record<string, string | undefined>, private readonly signal: AbortSignal,
+  /**
+   * @param environment Overrides merged over `process.env`, or a function returning them.
+   *
+   * A function is what the runtime passes: the overrides carry the credentials setup resolves, and setup runs after
+   * this object exists. Taking the record by value froze an empty credential map into every command, so the account
+   * was never presented and the host's GitHub polling reported "run gh auth login" forever.
+   */
+  constructor(private readonly resolved: () => Deployment, private readonly environment: Environment, private readonly signal: AbortSignal,
     private readonly repository?: string) {}
+  /** The overrides of this command, read on each call so a credential resolved later is still applied. */
+  protected get overrides(): Record<string, string | undefined> {
+    return typeof this.environment === 'function' ? this.environment() : this.environment
+  }
   get deployment(): Deployment { return this.resolved() }
   /** 绑定到部署里的某一个仓库：GitHub API 路径仍然只能落在这个仓库里，越界的路径照旧抛错。 */
   at(repository: string): Commands {
@@ -77,7 +90,7 @@ export class Commands {
   async run(program: string, args: string[], cwd?: string): Promise<string> {
     try {
       const { stdout } = await exec(program, args, { cwd, signal: this.signal, timeout: TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024,
-        env: { ...process.env, ...this.environment, GH_PROMPT_DISABLED: '1', LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1', LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' } })
+        env: { ...process.env, ...this.overrides, GH_PROMPT_DISABLED: '1', LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1', LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' } })
       return stdout
     } catch (error) { throw commandError(error, program) }
   }

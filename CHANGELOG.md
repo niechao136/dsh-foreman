@@ -1,3 +1,17 @@
+## 0.5.9 — 2026-11-12
+
+### 修复：0.5.8 没修好轮询失败（真正的根因）
+
+0.5.8 让 `commandEnvironment` 带上了凭据，但漏了更关键的一层：**那份环境是在 `Commands` 构造时按值取的**。
+
+`Runtime` 构造函数里写着 `new Commands(..., setup.commandEnvironment, ...)`——getter 在那一刻被求值，
+而 setup 还没跑，于是凭据映射是空的，被冻结进了之后每一条命令。`agentVariables()` 里的
+`GH_TOKEN: undefined` 又恰好把 `process.env` 里的值也清掉，结果宿主自己的 `gh` 拿到的是空字符串。
+
+现在 `Commands` 接受一个**函数**形式的覆盖值（`Environment`），每次 `run()` 时才求值；
+`Runtime` 传 `() => setup.commandEnvironment`。
+
+服务器上实测：修复前 `gh` 报未登录，修复后同一进程内 `process.env.GH_TOKEN` 为真值。
 ## 0.5.8 — 2026-11-12
 
 ### 修复：GitHub 轮询连续失败（`gh` 报未登录）

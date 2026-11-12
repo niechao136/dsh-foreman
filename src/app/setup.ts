@@ -46,13 +46,23 @@ export class Setup {
   private readonly path: string
   /** Environment variables pointing agent subprocesses at the isolated git config and command shims. */
   private readonly variables: Record<string, string | undefined>
+  /**
+   * The credentials resolved from storage, for the host's own CLI calls.
+   *
+   * `agentVariables()` deliberately blanks credential-shaped names so the operator's shell token never reaches the
+   * agent; the resolved credentials are the one sanctioned source and must therefore be merged AFTER it. Keeping them
+   * here rather than reading `process.env` matters because `applyEnvironment` writes to the whole process, and a
+   * later `agentVariables()` spread would silently undo it — which is exactly how the host's GitHub polling ran
+   * unsigned while the worker shims worked.
+   */
+  private credentialVariables: Record<string, string | undefined> = {}
   private restoreEnvironment?: () => void
   constructor(private readonly host: SetupHost) {
     this.path = withoutDirectory(process.env.PATH ?? '', workerBin(host.machine.stateDir))
     this.variables = agentVariables(host.machine.stateDir)
   }
-  /** Host command environment with agent git variables applied and the worker shim directory excluded from PATH. */
-  get commandEnvironment(): Record<string, string | undefined> { return { ...this.variables, PATH: this.path } }
+  /** Host command environment with agent git variables, the resolved credentials, and the worker shim directory removed from PATH. */
+  get commandEnvironment(): Record<string, string | undefined> { return { ...this.variables, ...this.credentialVariables, PATH: this.path } }
   get deployment(): Deployment {
     if (!this.resolved) throw new Error(`dsh-foreman is waiting for setup: ${this.problem?.detail ?? 'setup has not run'}`)
     return this.resolved
@@ -94,7 +104,7 @@ export class Setup {
   async blockCommands(blocked: readonly string[]): Promise<void> {
     if (this.resolved) await writeEnvironment(this.resolved, blocked)
   }
-  restore(): void { this.restoreEnvironment?.(); this.restoreEnvironment = undefined }
+  restore(): void { this.restoreEnvironment?.(); this.restoreEnvironment = undefined; this.credentialVariables = {} }
   /**
    * The environment variables carrying each Source's stored credential.
    *
@@ -189,6 +199,7 @@ export class Setup {
     await writeEnvironment(resolved, settings.executor.blockedCommands).catch(machineProblem)
     // Credentials are injected at the same point as the rest of the agent environment, so a worker and the host's own
     // CLI calls sign in as the same account, and neither one reads a token from the operator's shell.
+    this.credentialVariables = credentials
     this.restoreEnvironment = applyEnvironment({ ...this.variables, ...credentials }, machine.stateDir, this.path)
     await verifyEnvironment(resolved, context.subprocess, lifetime).catch((error: unknown) => {
       this.restore()

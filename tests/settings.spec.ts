@@ -223,3 +223,42 @@ it('checks a new credential on the save that introduces it, before it is stored'
   expect(unseal(secretKey(h.directory), store.get(KV.sources.secret('github'))!))
     .toEqual({ 'GH_TOKEN=token': 'ghp_brandnew' })
 })
+
+/**
+ * The credential must survive into the environment of every command the host runs afterwards.
+ *
+ * Setup resolves the account, then applies the credential to `process.env` so workers inherit it. But `Commands` does
+ * not run with `process.env` alone: it merges `setup.commandEnvironment` over it, and that view is built from
+ * `agentVariables()`, which sets `GH_TOKEN: undefined` to keep an operator's own token out of the agent's way. The
+ * `undefined` therefore overwrote the very credential setup had just injected, and only the host's own CLI calls — the
+ * GitHub polling loop — ran unsigned while the worker shims worked. That is the source of the endless
+ * "please run gh auth login" poll failures next to an otherwise healthy deployment.
+ */
+it('keeps the resolved credential in the environment of the CLI calls the host itself runs', async () => {
+  h = await startRuntime((store, stateDir) => {
+    store.set(KV.sources.secret('github'), seal(secretKey(stateDir), { 'GH_TOKEN=token': 'ghp_polling' }))
+  })
+  // The value under test: the environment merged into every Commands.run, not the process environment.
+  expect(h.runtime.setup.commandEnvironment.GH_TOKEN).toBe('ghp_polling')
+})
+
+/**
+ * Replacing only the token must restart setup so the new value is actually used.
+ *
+ * A credential lives outside the settings document, so a card whose configuration is unchanged produces an identical
+ * document. The save skipped itself as a no-op and never restarted setup, so the old token stayed in `process.env`
+ * and in the polling loop while the card showed the new one — a "the token I typed is ignored" report with nothing
+ * visibly wrong.
+ */
+it('restarts setup to apply a credential that changed with no other setting', async () => {
+  h = await startRuntime((store, stateDir) => {
+    store.set(KV.sources.secret('github'), seal(secretKey(stateDir), { 'GH_TOKEN=token': 'ghp_before' }))
+  })
+  const { settings, store } = h.runtime
+  const block = settings.block('source:github')
+  const value = block.value as { enabled: boolean; config: Record<string, unknown> }
+  const result = await settings.save('source:github', { ...value, secret: { token: 'ghp_after' } }, block.revision, 'panel')
+  // The card's configuration is untouched, so the document save is a no-op — the credential still has to be applied.
+  expect(result.restarting).toBe(true)
+  expect(unseal(secretKey(h.directory), store.get(KV.sources.secret('github'))!)).toEqual({ 'GH_TOKEN=token': 'ghp_after' })
+})

@@ -1,3 +1,30 @@
+## 0.5.8 — 2026-11-12
+
+### 修复：GitHub 轮询连续失败（`gh` 报未登录）
+
+令牌本身是好的，`gh auth status` 也能读到。真正的问题是**宿主自己的 `gh` 调用**跑在一个不含凭据的环境里。
+
+`Commands.run()` 把 `setup.commandEnvironment` 铺在 `process.env` 之上，而那份环境由 `agentVariables()`
+构成——它把 `GH_TOKEN` 主动设成 `undefined`（防止操作者 shell 里的令牌漏给智能体）。于是 `undefined`
+覆盖掉了 setup 刚刚注入的凭据：worker 走 shim 一切正常，**只有宿主自己的轮询在裸跑**。
+这就是「部署看起来是好的、却一直提示 `gh auth login`」的来源。
+
+现在 setup 把解析出的凭据单独记住，并在 `agentVariables()` **之后**合并进 `commandEnvironment`；
+`restore()` 同时清掉这份副本。
+
+### 修复：只改令牌不会生效
+
+凭据不落在 settings 文档里，所以「只换了令牌、没动任何配置」保存出来的文档与旧文档完全相同。
+保存逻辑把它当成空操作提前返回，setup 从未重跑，`process.env` 里仍是旧令牌，
+而面板上显示的是新令牌。
+
+现在 `credentialChanged` 既触发账号校验，也强制重启 setup。
+
+### 文档
+
+`dsh-foreman` 与 `dsh-foreman-node` 的 README 补上「怎么用」：安装、来源与凭据配置、
+策略与准入、设备登记与 tunnel，以及「不接单时的理由是什么、去哪里改」。
+删掉了 `dsh-foreman-node` README 里重复的 `cordis.patch.yml` 示例。
 ## 0.5.7 — 2026-11-11
 
 ### 修复：改令牌 / 加仓库时保存被拒

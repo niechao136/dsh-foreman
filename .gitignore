@@ -6,3 +6,4 @@ coverage/
 *.tgz
 .DS_Store
 .dsh-project-memory/
+full-serial.log

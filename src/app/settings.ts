@@ -196,11 +196,14 @@ export class Settings {
     // Re-read current settings after async checks in case unrelated blocks were saved concurrently.
     const old = store.settings()
     const settings = rules.merge(old, parsed, id)
-    if (JSON.stringify(SettingsSchema.parse(settings)) === JSON.stringify(old)) {
+    // A new credential changes no setting, so an unchanged document must still be persisted and must still re-run
+    // setup: the stored token is read by setup alone, and skipping either leaves the previous credential in use while
+    // the card shows the new one.
+    if (!credentialChanged && JSON.stringify(SettingsSchema.parse(settings)) === JSON.stringify(old)) {
       const delivery = await sessions.delivery(`settings:${block}`)
       return { saved: true, revision: store.blockRevision(block), policy_changed: false, restarting: false, context_delivery: delivery }
     }
-    const restarting = setupChanged(old, settings, sources) || !this.host.setup.configured()
+    const restarting = setupChanged(old, settings, sources) || credentialChanged || !this.host.setup.configured()
     const before = policyVersion(old), after = policyVersion(settings)
     const scope = (version: SettingsValue) => ({
       scope: (input: { source: string; meta: Record<string, unknown> }) => this.host.sources.scope(input, version) })

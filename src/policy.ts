@@ -6,7 +6,7 @@ import { LIMITS } from './limits.ts'
 import { z } from 'zod'
 import { ADMISSION_DEFAULTS, type Admission, type AdmissionCell, type AdmissionRow } from './admission.ts'
 import { key, type AssessmentOutcome, type Mandate, type Policy, type PolicyEffect, type SourceScope, type Strength, type Thread, type Ticket,
-  type Trigger, type ActorRef, type GateResult } from './core/index.ts'
+  type Trigger, type ActorRef, type GateResult, type WorkKind } from './core/index.ts'
 import { sameName } from './infra/text.ts'
 import { WORKER_COMMANDS } from './infra/environment.ts'
 
@@ -15,17 +15,49 @@ export const RuleMatchSchema = z.object({ rule_id: RuleIdSchema, reason: z.strin
 export type RuleMatch = z.infer<typeof RuleMatchSchema>
 export const RuleAssessmentSchema = RuleMatchSchema.extend({ matched: z.boolean() }).strict()
 export type RuleAssessment = z.infer<typeof RuleAssessmentSchema>
+/**
+ * What kind of work an accepted request is.
+ *
+ * `change` edits the project; `answer` reads it and reports back. Both need a worker: an answer usually has to run a
+ * command, read a device's checkout, or check a live deployment, none of which the router Session can do — it holds
+ * no workspace and no device paths. Leaving `answer` out of the model was not a rule choice but a structural one:
+ * `directionAllowed` demanded `implementation_requested`, so a lookup could never be accepted no matter which rules
+ * were enabled.
+ */
+export const WorkKindSchema = z.enum(['change', 'answer'])
+/** `WorkKind` is declared in the core model, which knows no policy; this re-exports it for settings-side callers. */
+export type { WorkKind }
 export const AdmissionDirectionSchema = z.object({
+  /** The discussion asks for a change to this project. */
   implementation_requested: z.boolean(),
+  /**
+   * The discussion asks a question this project's own state has to answer, such as which version is deployed, why a
+   * job failed, or what a configuration currently is. A pure opinion or unrelated question is neither.
+   */
+  answer_requested: z.boolean().default(false),
   target_basis: z.enum(['specified', 'existing-standard', 'undetermined']),
   requires_design_decision: z.boolean(),
   evidence: z.string().trim().min(1).max(700),
 }).strict()
 export type AdmissionDirection = z.infer<typeof AdmissionDirectionSchema>
-/** Check whether an assessment established implementation intent and a settled target without open design decisions. */
+/** The kind of work a direction describes, or undefined when it establishes neither. */
+export function workKindOf(direction: AdmissionDirection): WorkKind | undefined {
+  if (direction.implementation_requested) return 'change'
+  return direction.answer_requested ? 'answer' : undefined
+}
+/**
+ * Check whether an assessment established work of some kind with a settled target and no open design decisions.
+ *
+ * A change additionally needs a settled target. An answer does not: "which version is deployed" has no target to
+ * settle, and demanding one would be how the lookup case stayed unreachable.
+ */
 export function directionAllowed(value: unknown): value is AdmissionDirection {
   const result = AdmissionDirectionSchema.safeParse(value)
-  return result.success && result.data.implementation_requested && result.data.target_basis !== 'undetermined' && !result.data.requires_design_decision
+  if (!result.success) return false
+  const { implementation_requested: change, answer_requested: answer, target_basis: basis, requires_design_decision: design } = result.data
+  if (!change && !answer) return false
+  if (design) return false
+  return change ? basis !== 'undetermined' : true
 }
 export interface Assessment {
   decision: 'accept' | 'ignore' | 'unavailable'; rule_assessments: RuleAssessment[]; direction: unknown
@@ -62,11 +94,23 @@ export function assessmentOutcome(assessment: Assessment, settings: Pick<Setting
     return { kind: 'ignore', audit: { ...audit, would_accept: true, proposal }, reason: { code: 'observed', values: { text: assessment.reason } } }
   }
   return { kind: 'accept', title, scope, reason: assessment.reason, ...(assessment.acknowledgement ? { acknowledgement: assessment.acknowledgement } : {}),
-    rules: matches.map(match => match.rule_id), audit, ...(name ? { name } : {}), ...(device ? { device } : {}) }
+    rules: matches.map(match => match.rule_id), audit, workKind: workKindOf(assessment.direction)!, ...(name ? { name } : {}), ...(device ? { device } : {}) }
 }
+/**
+ * The rules a fresh installation starts with.
+ *
+ * The two change rules are deliberately narrow, and used to be the whole list — which meant every lookup was rejected
+ * as "matches no enabled rule". In the live ledger that showed up as version questions answered with "no rule admits
+ * it". An agent that can only edit text and spacing is a linter, not a colleague, so the answer rule is part of the
+ * initial set rather than something the operator has to discover they need.
+ *
+ * Each rule is written to be judged on intent, not on phrasing: what makes a lookup legitimate is that the project's
+ * own state is the authority on the answer, which is also what makes it safe to admit proactively.
+ */
 const DEFAULT_RULES = [
   { id: 'copy', name: 'Copy fixes', enabled: true, instruction: 'Explicit requests to correct a typo, wording, punctuation or existing translation. Preserve product promises and business meaning.' },
   { id: 'visual', name: 'Visual fixes', enabled: true, instruction: 'Explicit implementation requests for local spacing, alignment, overflow or styling, with a specified target or an objectively established existing standard/correct state to restore. Locating an element or calling it inconsistent, unattractive or hard to understand does not establish a target. Do not invent visual style, information hierarchy, rendering or interaction decisions. No redesign, new interaction or behavior. A known spacing defect does not authorize adjacent undefined restyling; assess only a clearly separable authorized scope. If direction or scope is unsettled, observe only: no acknowledgement, worker or unsolicited question.' },
+  { id: 'answer', name: 'Status answers', enabled: true, instruction: 'Questions only reading this project can answer: the deployed version, whether a build is running, a configuration value, why a run failed, what exists on a named machine. Answer by reading the repository, deployment or device and reporting what you found with its evidence. Reading only, never changing. Not a match: opinions, predictions, other products, design discussion, or anything needing a product decision first.' },
 ]
 /** An assessment rule; its instruction may also specify PR reviewers and whether to wait for their approval. */
 export const RuleSchema = z.object({ id: RuleIdSchema, name: z.string().trim().min(1).max(LIMITS.ruleName), enabled: z.boolean(),

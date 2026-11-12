@@ -17,7 +17,8 @@ const ALLOWED: ReadonlySet<string> = new Set<NodeReportState>(['progress', 'read
 
 export interface ApplyReportInput {
   /** Reports an outcome on a ticket; the Engine's `report` also returns the updated ticket, which is ignored here. */
-  report: (ticketId: string, report: { state: NodeReportState; summary: string; question?: string }) => unknown
+  report: (ticketId: string, report: { state: NodeReportState; summary: string; question?: string;
+    detail?: Record<string, unknown> }) => unknown
   /** The ticket and whether it is still open, for an assignment id; undefined when the ledger never had it. */
   ticketOf: (assignmentId: string) => AssignmentWhere | undefined
   /**
@@ -78,7 +79,8 @@ export interface OnTimeoutInput {
   since: number
   now: number
   limitMs: number
-  report: (ticketId: string, report: { state: NodeReportState; summary: string; question?: string }) => unknown
+  report: (ticketId: string, report: { state: NodeReportState; summary: string; question?: string;
+    detail?: Record<string, unknown> }) => unknown
   ticketOf: (assignmentId: string) => AssignmentWhere | undefined
   deviceId: string
   running: readonly string[]

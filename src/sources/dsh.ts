@@ -160,10 +160,25 @@ export function dshTrigger(input: {
       // 每条本地消息都是一个新需求：Intake 看到这个标记就不会去复活已结束的工单，
       // 否则操作者问的第二件事会被第一张工单的执行器接着做掉。
       newTicket: true,
+      // 一个话题把「同一件事」与「这个项目里的新一句话」分开：写 `#topic:readme-refresh` 的消息会接上
+      // 那张同名话题的工单（即使它已结束），而没写话题的消息照旧各自开单。
+      ...topicOf(input.text) ? { topic: topicOf(input.text) } : {},
       ...input.workspace ? { workspace: input.workspace } : {},
       ...input.attachments?.length ? { attachments: input.attachments } : {},
     },
   }
+}
+
+/**
+ * The topic a message names with `#topic:<name>`, if any.
+ *
+ * A thread cannot say "the same piece of work" for the local operator, because the thread is the whole conversation
+ * of a project. This is the smallest explicit signal that can: the person writes it once, and a later message about
+ * the same thing reuses it, which is what lets a finished ticket be continued instead of duplicated.
+ */
+export const topicOf = (text: string): string | undefined => {
+  const match = /#topic:([A-Za-z0-9._-]{1,80})/.exec(text)
+  return match?.[1]
 }
 
 /**

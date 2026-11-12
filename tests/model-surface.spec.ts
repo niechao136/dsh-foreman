@@ -187,7 +187,8 @@ async function drive(host: Host) {
   await run(master, 'orchestrator_eval', { trigger_id: proposal.id })
   const proactive = (await run(master, 'orchestrator_eval_decide', { trigger_id: proposal.id, decision: 'accept', title: '文案修订', worktree_name: 'copy-fix',
     scope: '改副标题', reason: 'explicit copy change', intent_evidence: 'quoted', acknowledgement: '收到，把副标题改成“浏览网页”。',
-    rule_assessments: [{ rule_id: 'copy', matched: true, reason: 'copy change' }, { rule_id: 'visual', matched: false, reason: 'not visual' }],
+    rule_assessments: [{ rule_id: 'copy', matched: true, reason: 'copy change' }, { rule_id: 'visual', matched: false, reason: 'not visual' },
+      { rule_id: 'answer', matched: false, reason: 'not a lookup' }],
     direction: { implementation_requested: true, target_basis: 'specified', requires_design_decision: false, evidence: 'it names the text' } })).ticket as { ticket_id: string }
   const b = proactive.ticket_id
   await runtime.idle()
@@ -419,6 +420,8 @@ it('lists in the main Session\'s Policy section exactly the enabled rules, as th
   const text = host.sections.get(host.runtime.masterId)!({}), at = text.indexOf('## Policy')
   const listed = text.slice(at, text.indexOf('\n\n', at)).split('\n').filter(line => line.startsWith('- '))
   expect(listed).toEqual(ruleLines())
-  // The drive disabled the visual rule and changed the copy rule's instruction.
-  expect(listed).toEqual([expect.stringMatching(/^- .* \(copy\): .*Keep the wording short\.$/)])
+  // The drive disabled the visual rule and changed the copy rule's instruction, so the section lists the rules that
+  // remain enabled — copy with its new text, and answer untouched.
+  expect(listed).toEqual([expect.stringMatching(/^- .* \(copy\): .*Keep the wording short\.$/),
+    expect.stringMatching(/^- .* \(answer\): /)])
 })

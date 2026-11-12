@@ -44,6 +44,7 @@ import { Hub } from '../foreman/hub.ts'
 import { serve, type Served } from '../foreman/ws.ts'
 import { prepareTicketWithForeman, reselectForRetry, type PrepareInput } from '../foreman/prepare.ts'
 import { routeIndexOf, chatRouteOf, repositoryRouteOf, type ChatIndex } from '../foreman/routing.ts'
+import { FOREMAN_PROTOCOL_VERSION, supports, type PartFrame } from '../foreman/protocol.ts'
 import { alignHello, onTimeout, applyReport, type AssignmentWhere } from '../foreman/reports.ts'
 import type { Frame, ReportFrame } from '../foreman/protocol.ts'
 import { attachmentPath } from '../sources/dsh.ts'
@@ -165,7 +166,8 @@ export class Runtime extends Service implements SourceHost {
       const environment = (ticket: Ticket) => this.ticketEnvironment(ticket)
       const resources: ResourceHost = { store, pages: new TextCache(4_000_000), prompts, commands, masterId, context: ctx,
         promptVersion: id => this.sessions.promptVersion(id), mayRead: (id, revision) => this.sessions.mayRead(id, revision),
-        feishuPageSize: () => feishuSettings(sources).readPageSize, sourceLink: link }
+        feishuPageSize: () => feishuSettings(sources).readPageSize, sourceLink: link,
+        readPart: (ticketId, offset, limit) => this.readPart(ticketId, offset, limit) }
       const sessions = this.sessions = new Sessions({ context: ctx, store, prompts, effects, health: board.claim('models'), masterId,
         isMaster: sessionId => this.isMaster(sessionId),
         lifetime: this.lifetime,
@@ -624,6 +626,41 @@ export class Runtime extends Service implements SourceHost {
   }
 
   /**
+   * Pages of remote transcripts someone is waiting for, by request id.
+   *
+   * A read is a request/response over the same socket a device's reports use, so the answer arrives on
+   * `receiveFrame` and is handed to whoever asked. An entry is removed when answered or when the wait times out.
+   */
+  private readonly parts = new Map<string, (frame: PartFrame) => void>()
+  /**
+   * Ask a device for one page of a finished job's transcript.
+   *
+   * The device holds the history; the hub holds only the report summary. This exists so a person can look closer at a
+   * remote ticket without the device pushing its whole transcript up front — which is what keeps the router's context
+   * small and every frame bounded.
+   */
+  async readPart(ticketId: string, offset: number, limit: number): Promise<PartFrame> {
+    const refused = (error: string): PartFrame => ({ v: FOREMAN_PROTOCOL_VERSION, type: 'part', frameId: `refused-${ticketId}`,
+      requestId: '', total: 0, offset: 0, text: '', error })
+    const ticket = this.store.tickets.get(ticketId)
+    const target = ticket?.target
+    if (ticket === undefined || target === undefined || target.kind !== 'remote') return refused('this ticket did not run on a device')
+    const assignment = [...ticket.assignments].reverse().find(item => item.report !== undefined)
+    if (assignment === undefined) return refused('this ticket has no finished assignment to read')
+    // An older device cannot answer a `read`; asking anyway would leave this wait to time out with a worse message.
+    if (!supports(this.hub?.capabilitiesOf(target.deviceId), 'read.transcript')) return refused('that device runs a release without transcript reading')
+    const requestId = `${ticketId}:${Date.now()}`
+    const sent = this.hub?.send(target.deviceId, { v: FOREMAN_PROTOCOL_VERSION, type: 'read', frameId: `read-${requestId}`,
+      requestId, assignmentId: assignment.id, resource: 'transcript', offset, limit } as never)
+    if (!sent) return refused('that device is not connected now')
+    return new Promise<PartFrame>(resolve => {
+      const timer = setTimeout(() => { this.parts.delete(requestId); resolve(refused('the device did not answer in time')) }, 15_000)
+      timer.unref?.()
+      this.parts.set(requestId, frame => { clearTimeout(timer); resolve(frame) })
+    })
+  }
+
+  /**
    * Turn one device frame into ledger facts.
    *
    * Only two frames change anything: `report` becomes an Engine report, and `accepted` marks the assignment started —
@@ -645,6 +682,12 @@ export class Runtime extends Service implements SourceHost {
           this.engine.inputsDelivered(carried.ticketId, carried.assignmentId, carried.inputIds)
         }
       } else if (frame.type === 'hello') this.alignDevice(deviceId, frame.running)
+      else if (frame.type === 'part') {
+        // A page someone asked for while reading a remote job's transcript. Waiting reads resolve here; a page nobody
+        // is waiting for (its reader gave up) is dropped.
+        const waiter = this.parts.get(frame.requestId)
+        if (waiter !== undefined) { this.parts.delete(frame.requestId); waiter(frame) }
+      }
     } catch (error) {
       // A frame the ledger refuses must not take the connection down: log it and let the device keep its link.
       this.ctx.logger.warn('dsh-foreman could not apply a %s frame from %s: %s', frame.type, deviceId, String(error))

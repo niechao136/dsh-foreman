@@ -102,6 +102,19 @@ Explicit requests work in every mode. Start in `observe` and switch to `auto` af
 
 Each rule describes a kind of proactive work. The Ticket's Mandate records the matched rules, and its Executor receives their names and instructions.
 
+### Two kinds of work
+
+An assessment establishes one of two things, and acceptance needs exactly one of them:
+
+| Kind | `implementation_requested` / `answer_requested` | Target |
+| --- | --- | --- |
+| A change | `implementation_requested: true` | Must be settled: specified or existing-standard |
+| An answer | `answer_requested: true` | Not required — a question has no target to settle |
+
+An answer is still executed by a worker, not by the router Session: "which version is deployed" is answered by reading a checkout, a deployment or a device, and the router holds no workspace. The default rules therefore ship with **Status answers**, alongside the two change rules.
+
+Leaving answers out was a structural mistake rather than a policy choice: acceptance demanded `implementation_requested`, so no lookup could ever be accepted whatever rules were enabled, and the ledger shows version questions rejected with "no enabled rule admits it".
+
 For that Ticket, a rule's process and communication requirements override the defaults. A silence rule can suppress an acknowledgement; a review rule can name the required reviewer and approval before merge. Requirements that apply to every Ticket belong in team prompt sections instead.
 
 ## Policy version

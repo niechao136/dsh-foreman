@@ -34,6 +34,16 @@ export class Intake extends EnginePart {
     // A Source that marks its triggers as fresh states each one as a separate request: such a trigger is never folded
     // into a ticket that is already running, and never resumes an ended one — it takes a ticket of its own.
     const fresh = trigger.meta.newTicket === true
+    // A topic overrides that. A thread says where a message was written, which for the local operator is the whole
+    // conversation of a project, so it cannot tell a new request from a continuation. A topic can, and when both the
+    // trigger and an ended ticket name the same one, the person is plainly asking for that work again or continuing
+    // it — attaching is what they mean, and refusing it is what made "reopen the last ticket" impossible.
+    const topic = typeof trigger.meta.topic === 'string' && trigger.meta.topic !== '' ? trigger.meta.topic : undefined
+    if (topic !== undefined) {
+      const related = this.repo.tickets.byTopic(topic).filter(ticket => ticket.ended?.by !== 'human')
+      const current = related.at(-1)
+      if (current !== undefined) reached.set(current.id, { ticket: current, context: false })
+    }
     for (const ref of trigger.threads) {
       const thread = this.thread(ref)
       if (!thread.lastAt || trigger.at > thread.lastAt) thread.lastAt = trigger.at

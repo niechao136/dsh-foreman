@@ -11,6 +11,14 @@ export interface ChannelRef { source: string; thread: string; address: Record<st
 /** Stable key of a thread across the whole domain. */
 export const threadKey = (ref: ThreadRef): string => `${ref.source}:${ref.id}`
 /**
+ * What kind of work an accepted request asks for.
+ *
+ * `change` edits the project. `answer` reads it and reports back: which version is deployed, why a run failed, what a
+ * setting currently is. An answer still needs a worker, because it usually has to run a command, read a device's
+ * checkout, or look at a live deployment — none of which the router Session can do, since it holds no workspace.
+ */
+export type WorkKind = 'change' | 'answer'
+/**
  * Normalizes valid timestamps to `Date#toISOString` form so stored timestamps compare lexicographically in memory and SQL;
  * values that do not parse as a timestamp are returned unchanged.
  */
@@ -130,6 +138,18 @@ export interface Mandate {
   basis: MandateBasis
   actor: ActorRef
   scope: string
+  /**
+   * What piece of work this ticket is about, when the request names one.
+   *
+   * A Thread answers "where was this said" — a Feishu topic, a GitHub PR, or, for the local operator, the whole
+   * conversation of one project. Only the first two coincide with "the same piece of work"; the local one does not, so
+   * a thread alone cannot tell a new request from a continuation. A topic can: two requests carry the same topic
+   * exactly when they are about the same thing.
+   *
+   * Absent means the ticket did not name one, and the thread alone decides, which is the behaviour before topics
+   * existed.
+   */
+  topic?: string
 }
 
 /** Active trigger evaluation on a thread; at most one exists per thread. */
@@ -252,7 +272,13 @@ export interface Assignment {
   startedAt?: string
   endedAt?: string
   endedReason?: string
-  report?: { state: ReportState; summary: string; at: string }
+  report?: { state: ReportState; summary: string; at: string
+    /**
+     * What the job did, when a device could summarise it: tool counts, changed paths, the last error. A device's
+     * Session never reaches the hub, so without this a remote ticket is judged from one paragraph. The hub treats it
+     * as an opaque, already-bounded record.
+     */
+    detail?: Record<string, unknown> }
   /** When Inputs last reached the worker; one at or after `report.at` means the worker has been busy with Inputs since that report. */
   deliveredAt?: string
   /**

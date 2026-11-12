@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SettingsSchema, assessmentOutcome, policyEffects, settingsPolicy, policyVersion, allowedSender, anyoneAllowed, type Settings } from '../src/policy.ts'
+import { SettingsSchema, assessmentOutcome, directionAllowed, workKindOf, policyEffects, settingsPolicy, policyVersion, allowedSender, anyoneAllowed, type Settings } from '../src/policy.ts'
 import type { MandateBasis } from '../src/core/index.ts'
 import { migrateSettings } from '../src/app/migration.ts'
 import { SourceRegistry } from '../src/sources/registry.ts'
@@ -304,6 +304,44 @@ describe('assessment outcomes', () => {
     expect(settingsPolicy(auto, scope).admitsInferred(['unknown'])).toBe(false)
     expect(settingsPolicy(auto, scope).admitsInferred([])).toBe(false)
     expect(settingsPolicy(settings('observe'), scope).admitsInferred([enabled])).toBe(false)
+  })
+})
+
+/**
+ * A lookup must be acceptable.
+ *
+ * `directionAllowed` used to require `implementation_requested`, which made every question structurally inadmissible
+ * regardless of the enabled rules: the live ledger shows version questions rejected with "no enabled rule admits it".
+ * An agent that can only edit copy and spacing is a linter, not a colleague.
+ */
+describe('the kind of work a direction establishes', () => {
+  const base = { target_basis: 'undetermined' as const, requires_design_decision: false, evidence: 'e' }
+  const change = { ...base, implementation_requested: true, answer_requested: false, target_basis: 'specified' as const }
+  it('admits a question about the current state of the project without demanding a settled target', () => {
+    expect(directionAllowed({ ...base, implementation_requested: false, answer_requested: true })).toBe(true)
+    expect(workKindOf({ ...base, implementation_requested: false, answer_requested: true })).toBe('answer')
+  })
+  it('still demands a settled target for a change, and still refuses an open design decision either way', () => {
+    expect(directionAllowed({ ...base, implementation_requested: true, answer_requested: false })).toBe(false)
+    expect(directionAllowed({ ...change, requires_design_decision: true })).toBe(false)
+    expect(directionAllowed({ ...base, implementation_requested: false, answer_requested: true, requires_design_decision: true })).toBe(false)
+  })
+  it('refuses a direction that establishes neither, and records which one an accept was', () => {
+    expect(directionAllowed({ ...base, implementation_requested: false, answer_requested: false })).toBe(false)
+    const parsed = SettingsSchema.parse({})
+    const auto = { ...parsed, eval: { ...parsed.eval, mode: 'auto' as const } }
+    const judged = auto.policy.rules.filter(rule => rule.enabled).map(rule => ({ rule_id: rule.id, matched: true, reason: 'r' }))
+    const outcome = assessmentOutcome({ decision: 'accept', rule_assessments: judged, direction: { ...base, implementation_requested: false,
+      answer_requested: true }, title: 'Which version', scope: 'read', reason: 'asked', intent_evidence: 'quote' }, auto, 'inferred')
+    expect(outcome).toMatchObject({ kind: 'accept', workKind: 'answer' })
+    expect(assessmentOutcome({ decision: 'accept', rule_assessments: judged, direction: { ...change },
+      title: 'Fix', scope: 'small', reason: 'asked', intent_evidence: 'quote' }, auto, 'inferred')).toMatchObject({ workKind: 'change' })
+  })
+  /** A fresh installation must be able to answer questions without the operator first inventing a rule. */
+  it('ships an answer rule enabled, so a new installation admits lookups out of the box', () => {
+    const rules = SettingsSchema.parse({}).policy.rules
+    expect(rules.filter(rule => rule.enabled).map(rule => rule.id)).toContain('answer')
+    expect(rules.find(rule => rule.id === 'answer')!.instruction).toMatch(/never changing|reading, never|reading/i)
   })
 })
 

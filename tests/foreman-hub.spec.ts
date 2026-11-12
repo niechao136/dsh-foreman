@@ -19,8 +19,32 @@ it('accepts a hello with a good token and remembers what the device says it runs
   expect([hub.online(), hub.running('laptop')]).toEqual([['laptop'], 1])
 })
 
-it('closes the channel when the token is wrong', async () => {
-  const close = vi.fn()
+/**
+ * A device that announces nothing must still connect.
+ *
+ * A laptop can sit switched off for weeks. Refusing it for a newer protocol version would mean it never works again
+ * until someone physically updates it, so optional behaviour travels as capabilities instead, and an older device
+ * simply keeps working without the newer detail.
+ */
+it('accepts a device that announces no capabilities, and reports none for it', async () => {
+  const hub = new Hub({ devices: devices(() => true), onFrame: vi.fn() })
+  const { a, b } = memoryChannel()
+  hub.attach('laptop', a)
+  b.send(JSON.stringify(hello('laptop', 'tok')))
+  await vi.waitFor(() => expect(hub.online()).toEqual(['laptop']))
+  expect(hub.capabilitiesOf('laptop')).toEqual([])
+})
+
+it('remembers what a device says it can do', async () => {
+  const hub = new Hub({ devices: devices(() => true), onFrame: vi.fn() })
+  const { a, b } = memoryChannel()
+  hub.attach('laptop', a)
+  b.send(JSON.stringify(hello('laptop', 'tok', { capabilities: ['report.detail', 'read.transcript'] })))
+  await vi.waitFor(() => expect(hub.online()).toEqual(['laptop']))
+  expect(hub.capabilitiesOf('laptop')).toEqual(['report.detail', 'read.transcript'])
+})
+
+it('closes the channel when the token is wrong', async () => {  const close = vi.fn()
   const hub = new Hub({ devices: devices(() => false), onFrame: vi.fn() })
   const { a, b } = memoryChannel()
   const channel = { ...a, close }

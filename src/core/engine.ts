@@ -115,7 +115,12 @@ export class Engine {
       // 本地操作者的每条消息都是一个新请求（`meta.newTicket`）：已经结束的工单不接它 ——
       // 想重跑同一个需求就再开一张单，而不是让旧单带着旧交付被复活一次。
       const target = this.repo.tickets.get(ticketId)
-      if (target !== undefined && trigger.meta.newTicket === true && !liveTicket(target)) {
+      // A topic that both the trigger and this ended ticket name means the person is asking for the same piece of work
+      // again — attaching is exactly what they mean, and refusing it is what made "continue that ticket" impossible
+      // for the local operator, whose thread is the whole conversation of a project.
+      const sameTopic = typeof trigger.meta.topic === 'string' && trigger.meta.topic !== ''
+        && trigger.meta.topic === target?.mandate.topic
+      if (target !== undefined && trigger.meta.newTicket === true && !liveTicket(target) && !sameTopic) {
         throw new UserError('freshRequestEndedTicket')
       }
       this.evals.withdraw(trigger)

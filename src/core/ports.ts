@@ -1,5 +1,5 @@
 /** Ports the core depends on. Sources, policies, assessors, executors, and channels are project-specific. */
-import type { Assignment, ChannelRef, Decision, DecisionKind, Mandate, MandateBasis, Strength, Thread, Ticket, TicketEndBy, TicketOutcome, Trigger }
+import type { Assignment, ChannelRef, Decision, DecisionKind, Mandate, MandateBasis, Strength, Thread, Ticket, TicketEndBy, TicketOutcome, Trigger, WorkKind }
   from './model.ts'
 import type { Reason } from './reasons.ts'
 
@@ -43,9 +43,10 @@ export type AssessmentOutcome =
   /**
    * An accept: `rules` the assessment matched, `name` the ticket's requested short name, `note` a routing note for its
    * worker, and `device` the machine that must do it when the request itself names one. Left out, the Selector picks.
+   * `workKind` says whether the ticket changes the project or answers a question about it; see `WorkKind`.
    */
   | { kind: 'accept'; title: string; scope: string; reason: string | Reason; acknowledgement?: string; rules?: string[]; audit?: Record<string, unknown>;
-    name?: string; note?: string; device?: string }
+    name?: string; note?: string; device?: string; workKind?: WorkKind }
   | { kind: 'stop'; ticketId: string; reason: string | Reason; audit?: Record<string, unknown> }
 
 /** Semantic judgement. `request` queues the assessment, idempotently per `evalId`; the outcome returns through `Engine.decide`. */
@@ -128,6 +129,8 @@ export interface Repositories {
     open(): Ticket[]
     /** Tickets with undelivered Inputs or a pending or running Assignment, which is always the latest. */
     active(): Ticket[]
+    /** Tickets whose Mandate names `topic`, oldest first; a topic is what tells a continuation from a new request. */
+    byTopic(topic: string): Ticket[]
   }
   decisions: {
     get(id: string): Decision | undefined

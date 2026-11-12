@@ -94,7 +94,7 @@ function MandateDetails({ ticket, actor }: { ticket: TicketPageView; actor: stri
       <Hint>{reasonLabel(t, decision.reason)}</Hint>
       {decision.rules.map(rule => <Hint key={rule.id}>{t(rule.matched ? 'ruleMatched' : 'ruleUnmatched', { rule: rule.name,
         reason: rule.reason })}</Hint>)}
-      {direction && <Hint>{t('directionLine', { intent: t(direction.implementation_requested ? 'intentYes' : 'intentNo'),
+      {direction && <Hint>{t('directionLine', { intent: direction.answer_requested && !direction.implementation_requested ? t('intentAnswer') : t(direction.implementation_requested ? 'intentYes' : 'intentNo'),
         basis: valueLabel(t, 'targetBasis', direction.target_basis),
         design: t(direction.requires_design_decision ? 'designNeeded' : 'designNotNeeded') })} {t('directionEvidence',
           { evidence: direction.evidence })}</Hint>}
@@ -210,6 +210,31 @@ export function TicketPage({ id }: { id: string }) {
         {data.deliveryError && <p className="dt-banner dt-danger dt-mono">
           <span className="dt-banner-label">{t('deliveryFailedPrefix')}</span>{data.deliveryError}
         </p>}
+        {/* A remote job's own summary: the device Session never reaches this panel, so this is what tells a person
+            whether the job failed on tests, on the environment, or somewhere else entirely. */}
+        {(data.changedFiles?.length || data.tools?.length || data.lastError || data.steps) && <div id="ticket-result">
+          <Card title={t('remoteResult')} hint={t('remoteResultHint')}>
+            <KeyValues rows={[
+              ...data.steps ? [[t('remoteSteps'), String(data.steps)] as [string, string]] : [],
+              ...data.tests ? [[t('remoteTests'), t('remoteTestCounts', { passed: String(data.tests.passed),
+                failed: String(data.tests.failed) })] as [string, string]] : [],
+            ]} />
+            {data.lastError && <p className="dt-error dt-mono dt-clamp">{data.lastError}</p>}
+            {data.changedFiles?.length ? <div className="dt-detail-block">
+              <span className="dt-detail-label">{t('remoteChanged', { count: String(data.changedFiles.length +
+                (data.changedOverflow ?? 0)) })}</span>
+              <ul className="dt-plain-list">{data.changedFiles.map(path => <li key={path} className="dt-mono">{path}</li>)}</ul>
+              {data.changedOverflow ? <Hint>{t('remoteChangedMore', { count: String(data.changedOverflow) })}</Hint> : null}
+            </div> : null}
+            {data.tools?.length ? <div className="dt-detail-block">
+              <span className="dt-detail-label">{t('remoteTools')}</span>
+              <ul className="dt-plain-list">{data.tools.map(tool => <li key={tool.name}>
+                <span className="dt-mono">{tool.name}</span> · {t('remoteToolCalls', { calls: String(tool.calls),
+                  failures: String(tool.failures) })}
+              </li>)}</ul>
+            </div> : null}
+          </Card>
+        </div>}
         {/* 包裹层只提供滚动锚点 id，卡片内容与顺序不变。 */}
         <div id="ticket-mandate"><MandateDetails ticket={data} actor={actor} /></div>
         {undelivered.length > 0 && <div id="ticket-inputs"><Card title={t('undeliveredInputs')}

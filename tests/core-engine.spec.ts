@@ -1657,3 +1657,30 @@ it('refuses to attach an operator request to a ticket that has already ended', a
   h.engine.receive(trigger('10', { human: false, actor: { source: 'github', id: 'ci' } }))
   expect(() => h.engine.attach(ticketId, '10')).not.toThrow()
 })
+
+/**
+ * A topic is what lets a finished ticket be continued.
+ *
+ * The local operator's thread is the whole conversation of a project, so a thread cannot tell "the same piece of work"
+ * from "a new sentence". Without a topic, every follow-up either opened a duplicate ticket or was refused outright,
+ * which is why "reopen that ticket" was impossible. A shared topic now attaches to the ended ticket, while a trigger
+ * with no topic or a different one keeps the old behaviour.
+ */
+it('attaches a request that names the same topic to a ticket that already ended', async () => {
+  const h = harness()
+  h.engine.receive(trigger('20', { threads: [{ source: 'chat', id: 't1' }], meta: { topic: 'readme-refresh' } })); h.pump()
+  const decision = h.decide(h.requests.at(-1)!, { kind: 'accept', title: 'Fix', scope: 'small', reason: 'requested', acknowledgement: 'ok' })
+  h.settle()
+  const ticketId = decision.ticketId!
+  // The ticket remembers the topic its origin named, which is what a later request can match on.
+  expect(h.repo.tickets.get(ticketId)!.mandate.topic).toBe('readme-refresh')
+  h.engine.report(ticketId, { state: 'ready', summary: 'done' })
+  expect(h.repo.tickets.get(ticketId)!.ended).toBeDefined()
+  // The same topic on another thread reaches the ended ticket instead of opening a duplicate. Without topics the
+  // local operator had no way to say "this is that same piece of work", which is what made it impossible to continue.
+  h.engine.receive(trigger('21', { threads: [{ source: 'chat', id: 't9' }], meta: { newTicket: true, topic: 'readme-refresh' } }))
+  expect(h.repo.tickets.get(ticketId)!.inputs.some(input => input.kind === 'trigger' && input.triggerId === '21')).toBe(true)
+  // A different topic is a different piece of work: it does not reach that ticket.
+  h.engine.receive(trigger('22', { threads: [{ source: 'chat', id: 't9' }], meta: { newTicket: true, topic: 'other-thing' } }))
+  expect(h.repo.tickets.get(ticketId)!.inputs.some(input => input.kind === 'trigger' && input.triggerId === '22')).toBe(false)
+})

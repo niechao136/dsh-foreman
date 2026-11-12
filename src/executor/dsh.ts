@@ -4,7 +4,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { mkdir, rmdir, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
-import { key, latestAssignment, latestReport, liveTicket, runningAssignment, targetOf, threadKey, waitsForPerson } from '../core/index.ts'
+import { key, latestAssignment, latestReport, liveTicket, runningAssignment, targetOf, threadKey, waitsForPerson, type WorkKind } from '../core/index.ts'
 import type { AssessmentOutcome, Assignment, EngineForExecutor, Execution, Executor, Mandate, PolicyEffect, Ticket, TicketInput, Trigger }
   from '../core/index.ts'
 import type { Machine } from '../deployment.ts'
@@ -106,6 +106,38 @@ export const sourceTrigger = (host: { store: Pick<Store, 'triggers'> }, ticket: 
   host.store.triggers.get(ticket.origin.triggerId)
 
 /**
+ * The closing instructions a worker gets: what "done" means, and how to report it.
+ *
+ * Before this existed, whether a job was finished was the device model's own judgement, and the hub had no way to
+ * check it — the fallback in `watchTurnEnd` exists precisely because a device once finished work without ever calling
+ * the report tool. Naming the criteria in the task turns an implicit judgement into a list the worker can tick off and
+ * the hub can audit, without asking the device for a stronger model: comparing work against a written checklist is
+ * far easier than deciding when to stop.
+ *
+ * The list is derived from what the ticket already knows, so it is specific rather than boilerplate: the kind of work,
+ * the matched rules' own requirements, and — for a lookup — that every question asked is answered with its evidence.
+ */
+export function completionCriteria(mandate: Pick<Mandate, 'strength' | 'basis'> & { workKind?: WorkKind }, rules: readonly { name: string }[]): string {
+  const lines = mandate.workKind === 'answer'
+    ? ['- every question in the request is answered, each with the evidence you read it from (command output, file contents, the deployed revision)',
+      '- anything you could not determine is named as undetermined, with what you tried; never fill a gap with a guess',
+      '- nothing in the repository, the deployment or the device was changed']
+    : ['- the change described by the request is complete, and only that change was made',
+      '- the project builds and its tests pass, or the reason it cannot be checked here is stated',
+      '- every file you touched is listed in your report']
+  // An out-of-scope proactive ticket ends as dropped, so the criterion says that rather than offering blocked as an
+  // equally good answer: the domain already decided which one it is.
+  const closing = mandate.strength === 'inferred'
+    ? 'Report ready only when every line below is true. If one is not, the work is outside what was accepted: report dropped, naming the line.'
+    : 'Report ready only when every line below is true. Report blocked or failed otherwise, naming the line that is not.'
+  const proactive = mandate.strength === 'inferred'
+    ? ['- the work stays inside the accepted rules; if it does not, report dropped instead of finishing it'] : []
+  const ruleLines = rules.length
+    ? [`- the instructions of ${rules.map(rule => rule.name).join(', ')} were followed for this ticket`] : []
+  return ['## Completion criteria', closing, ...lines, ...proactive, ...ruleLines].join('\n')
+}
+
+/**
  * Returns additional system-prompt mandate instructions for a worker beyond the request: for work accepted proactively under
  * rules (`strength === 'inferred'`), restricts authorization to small internal changes within the rule scope; returns `''` for explicit requests.
  */
@@ -131,8 +163,8 @@ export function ticketExecution(ticket: Ticket, outcome: Extract<AssessmentOutco
   const source = ticket.origin.triggerId
   const note = outcome.note ? `\nRouting note (not the source request): ${outcome.note}` : ''
   const ruleIds = ticket.mandate.basis.rules
-  const rules = settings.policy.rules.filter(rule => ruleIds?.includes(rule.id))
-    .map(rule => `\n- ${rule.name} (${rule.id}): ${rule.instruction}`).join('')
+  const matchedRules = settings.policy.rules.filter(rule => ruleIds?.includes(rule.id))
+  const rules = matchedRules.map(rule => `\n- ${rule.name} (${rule.id}): ${rule.instruction}`).join('')
   const precedence = rules ? `\nMatched rules; their procedure and communication instructions take precedence over the default acknowledgement and messaging policy for this ticket:${rules}` : ''
   // The origin trigger is delivered alongside the assignment, so `assignment` omits the trigger text.
   const assignment = ticket.mandate.strength === 'inferred' && ruleIds
@@ -154,7 +186,10 @@ export function ticketExecution(ticket: Ticket, outcome: Extract<AssessmentOutco
   const withAttachments = listing
     ? `${assignment}\nThe operator attached these; open them (read_image for images) before deciding anything:${listing}`
     : assignment
-  return { name, directory: workspace ?? join(executionRoot(settings, stateDir), name), assignment: withAttachments }
+  // The completion criteria ride with the task, so the worker checks a written list instead of deciding on its own when
+  // it is done, and the hub can audit the report against the same list.
+  const criteria = completionCriteria({ ...ticket.mandate, workKind: outcome.workKind }, rules.length ? matchedRules : [])
+  return { name, directory: workspace ?? join(executionRoot(settings, stateDir), name), assignment: `${withAttachments}\n\n${criteria}` }
 }
 /** Character limits for inline assignment and trigger text in worker messages; longer text is read via its resource. */
 const ASSIGNMENT_CHARS = 1500, TRIGGER_CHARS = 600

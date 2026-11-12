@@ -36,6 +36,7 @@ export const RESOURCES: readonly { name: string; holds: string; executor?: true 
   { name: 'ticket/<id>/result', holds: 'its latest report', executor: true },
   { name: 'ticket/<id>/report/<id>', holds: 'the report of one of its assignments', executor: true },
   { name: 'ticket/<id>/transcript', holds: 'its Executor Session\'s messages, newest first', executor: true },
+  { name: 'ticket/<id>/device', holds: 'a remote ticket\'s transcript, read from the device a page at a time', executor: true },
   { name: 'ticket/<id>/message/<n>', holds: 'one message of that transcript', executor: true },
   { name: 'ticket/<id>/input/<id>', holds: 'one input it was delivered', executor: true },
   { name: 'trigger/<id>', holds: 'a trigger\'s text, where it went, the message it replies to and the messages around it on its thread',
@@ -67,6 +68,8 @@ export interface ResourceHost {
   /** Whether a Session may read `revision` (the revision it currently runs under or any revision it ran under previously). */
   mayRead(sessionId: string, revision: number): boolean
   feishuPageSize(): number
+  /** Ask a device for one page of a remote job's transcript; absent when this installation has no device hub. */
+  readPart?(ticketId: string, offset: number, limit: number): Promise<{ text: string; total: number; offset: number; error?: string }>
   sourceLink(trigger: Trigger, signal?: AbortSignal): Promise<{ source_url?: string; source_url_read?: string }>
 }
 export interface MainResourceHost extends ResourceHost {
@@ -280,6 +283,15 @@ const ROUTES: readonly Route[] = [
     } else if (part !== undefined) throw new Error('Unknown context resource')
     else if (section === 'assignment') body = ticket.execution?.assignment ?? ''
     else if (section === 'result') body = latestReport(ticket)?.summary ?? ''
+    else if (section === 'device') {
+      // A remote ticket's Session lives on the device, so the local transcript below is empty for it. This asks the
+      // device for one page of its own rendered history instead of the hub having received the whole thing.
+      const page = await host.readPart?.(id, read.offset, read.limit ?? 4000)
+      if (page === undefined) throw new Error('This installation cannot read a device transcript')
+      if (page.error) throw new Error(page.error)
+      return { text: page.text, chars: page.total, offset: page.offset, ...page.offset + page.text.length < page.total
+        ? { next_offset: page.offset + page.text.length } : {} }
+    }
     else if (section === 'transcript') {
       body = (await transcript(host, id)).flatMap((event, index) => {
         const entry = transcriptEntry(event)

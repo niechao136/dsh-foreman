@@ -127,7 +127,39 @@ export function ticketSummary(ticket: Ticket) {
     deliveryError: attribute(ticket.delivery?.error), sessionId: ticket.assignments.some(item => item.startedAt)
       ? workerSessionId(ticket.id) : '',
     directory: attribute(ticket.execution?.directory), summary: latestReport(ticket)?.summary ?? '', createdAt: ticket.createdAt,
-    updatedAt: ticket.updatedAt }
+    // What a remote job did, when its device could summarise it. Absent for a local worker: the panel opens that
+    // Session directly, so repeating its own history here would be noise.
+    ...reportDetail(latestReport(ticket)) , updatedAt: ticket.updatedAt }
+}
+/**
+ * A device's structured report summary, always as strings the panel can trust.
+ *
+ * The record arrives from another machine, so every field is re-typed rather than passed through: a bad or hostile
+ * device must not be able to put arbitrary JSON in front of the panel.
+ */
+export function reportDetail(report: { detail?: Record<string, unknown> } | undefined) {
+  const detail = report?.detail
+  if (!detail || typeof detail !== 'object') return {}
+  const count = (value: unknown): number | undefined => typeof value === 'number' && Number.isFinite(value) ? value : undefined
+  const text = (value: unknown): string | undefined => typeof value === 'string' && value !== '' ? value.slice(0, 2000) : undefined
+  const tools = Array.isArray(detail.tools) ? detail.tools.flatMap((item): { name: string; calls: number; failures: number }[] => {
+    const entry = item as { name?: unknown; calls?: unknown; failures?: unknown }
+    const name = text(entry.name)
+    const calls = count(entry.calls)
+    if (!name || calls === undefined) return []
+    return [{ name, calls, failures: count(entry.failures) ?? 0 }]
+  }).slice(0, 50) : []
+  const changedFiles = Array.isArray(detail.changedFiles)
+    ? detail.changedFiles.flatMap(item => text(item) ?? []).slice(0, 20) : []
+  const tests = (() => {
+    const value = detail.tests as { passed?: unknown; failed?: unknown } | undefined
+    const passed = count(value?.passed), failed = count(value?.failed)
+    return passed === undefined && failed === undefined ? undefined : { passed: passed ?? 0, failed: failed ?? 0 }
+  })()
+  const steps = count(detail.steps), changedOverflow = count(detail.changedOverflow)
+  const lastError = text(detail.lastError)
+  return { ...steps !== undefined ? { steps } : {}, ...tools.length ? { tools } : {}, ...changedFiles.length ? { changedFiles } : {},
+    ...changedOverflow !== undefined ? { changedOverflow } : {}, ...lastError ? { lastError } : {}, ...tests ? { tests } : {} }
 }
 export type TicketSummaryView = ReturnType<typeof ticketSummary>
 function threadUrl(store: Store, thread: Thread): string | undefined {
@@ -187,7 +219,7 @@ const AuditSchema = z.object({
   would_accept: z.boolean().optional().catch(undefined),
   rule_assessments: z.array(z.object({ rule_id: z.string(), matched: z.boolean(), reason: z.string() })).optional().catch(undefined),
   matches: z.array(z.object({ rule_id: z.string(), reason: z.string() })).optional().catch(undefined),
-  direction: z.object({ implementation_requested: z.boolean(), target_basis: z.string(), requires_design_decision: z.boolean(),
+  direction: z.object({ implementation_requested: z.boolean(), answer_requested: z.boolean().optional().catch(undefined), target_basis: z.string(), requires_design_decision: z.boolean(),
     evidence: z.string() }).optional().catch(undefined),
 }).catch({})
 /** Decision kind, or `wouldAccept` for an ignore decision that observe mode would have accepted. */

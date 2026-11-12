@@ -34,10 +34,11 @@ One source message produces at most one ticket.
 If matching rules conflict or the scope is ambiguous, ignore quietly.
 Rule order has no priority.
 
-Every decision, including ignore and unavailable, must provide direction: implementation_requested, target_basis, requires_design_decision and evidence.
-Evidence must identify the source statements and any established target/reference; do not invent evidence to make the booleans pass.
-Accept only when implementation was requested, target_basis is specified or existing-standard, and no product/design decision remains.
-These declarations are your semantic judgments, not proof supplied by the schema.
+Every decision, including ignore and unavailable, provides direction: implementation_requested, answer_requested, target_basis, requires_design_decision and evidence.
+Evidence must identify the source statements and any established target; do not invent evidence to make the booleans pass.
+Two kinds of work are admissible. implementation_requested needs a settled target (specified or existing-standard) and no open product/design decision. answer_requested is a question this project answers about itself, which a worker reads the repository, deployment or device to answer.
+Accept when either was requested with no open design decision. Rejecting a lookup because no edit was asked for is the mistake the answer rule prevents.
+These are your judgments, not proof supplied by the schema.
 
 For visual feedback, locating a component, identifying a CSS file or estimating a few changed lines does not establish a small or authorized change.
 A screenshot of something described as inconsistent, ugly or in need of being easier to understand is not by itself a target design.

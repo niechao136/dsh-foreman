@@ -59,7 +59,11 @@ it('reads each page a tab remembered with the parameters it takes, and leaves ou
   expect(parseRoute({ page: 'eval', query: { filter: 'stop', window: '7d' } }))
     .toEqual({ page: 'eval', query: { filter: 'stop' } })
   expect(parseRoute({ page: 'execution', id: 5, query: { filter: 'idle' } })).toEqual({ page: 'execution', query: { filter: 'idle' } })
+  // Policy is a settings group of its own now, so a stored route naming it is honoured rather than collapsed to Source.
   expect(parseRoute({ page: 'settings', query: { group: 'policy', source: 'feishu' } }))
+    .toEqual({ page: 'settings', query: { group: 'policy', source: 'feishu' } })
+  // A group this build no longer has still falls back to Source, which is what the old assertion covered.
+  expect(parseRoute({ page: 'settings', query: { group: 'gone', source: 'feishu' } }))
     .toEqual({ page: 'settings', query: { group: 'source', source: 'feishu' } })
   expect([parseRoute('overview'), parseRoute(null)]).toEqual([undefined, undefined])
 })

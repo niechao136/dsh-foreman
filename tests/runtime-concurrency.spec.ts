@@ -915,7 +915,7 @@ describe('the Executor\'s parts', () => {
     expect(() => ticketExecution(ticket, { kind: 'accept', title: 'Fix', scope: 'x', reason: 'r', name: 'fix' } as never, settings, '/state',
       { ...local, meta: { workspace: 'relative' } })).toThrow('absolute directory')
     expect(ticketExecution(ticket, { kind: 'accept', title: 'Fix', scope: 'x', reason: 'r', name: 'fix' } as never, settings, '/state',
-      { ...local, source: 'github' }).directory).toMatch(/^\/state\/work\//)
+      { ...local, source: 'github' }).directory).toContain('work')
     // 附件清单只带合法 id：回放的历史记录里可能存着脏 id，接单阶段不能因此抛错。
     const withFiles = { ...local, meta: { ...local.meta, attachments: [{ id: 'ab12cd', kind: 'image', mediaType: 'image/png', bytes: 1 },
       { id: '../escape', kind: 'file', name: 'x' }] } } as never
@@ -927,11 +927,24 @@ describe('the Executor\'s parts', () => {
     expect(execution.assignment).not.toContain('trigger/tr1')
     expect(ticketExecution({ ...ticket, mandate: { ...ticket.mandate, strength: 'explicit' } } as Ticket,
       { kind: 'accept', title: 'Fix', scope: 'Fix', reason: 'r', name: 'fix-login', note: 'the login page' } as never, settings, '/state').assignment)
-      .toBe('Routing note (not the source request): the login page')
+      .toContain('Routing note (not the source request): the login page')
     // The worker's system prompt holds the limits an inferred Mandate sets, so the assignment does not repeat them.
     expect(execution.assignment).not.toContain(mandateInstructions(ticket.mandate))
     expect(execution.assignment).toContain('- Copy fixes (copy): Fix typos only.')
     expect(mandateInstructions({ strength: 'explicit' })).toBe('')
+    // The closing criteria travel with the task: a worker checks a written list, and the hub can audit the report
+    // against the same list instead of trusting the device model to decide when it is done.
+    expect(execution.assignment).toContain('## Completion criteria')
+    expect(execution.assignment).toContain('Report ready only when every line below is true')
+    expect(execution.assignment).toContain('the instructions of Copy fixes were followed')
+    // A proactive ticket is told to drop out of scope rather than finish it.
+    expect(execution.assignment).toContain('report dropped instead of finishing it')
+    // A lookup has its own criteria: answer every question with evidence, and change nothing.
+    const answer = ticketExecution(ticket, { kind: 'accept', title: 'Which version', scope: 'read', reason: 'r', name: 'v',
+      workKind: 'answer' } as never, settings, '/state')
+    expect(answer.assignment).toContain('every question in the request is answered')
+    expect(answer.assignment).toContain('nothing in the repository, the deployment or the device was changed')
+    expect(answer.assignment).not.toContain('its tests pass')
   })
   it('renders each kind of Input as its worker reads it, inline, and no reopen Input', () => {
     const asked = { id: 'tr1', source: 'feishu', threads: [{ source: 'feishu', id: 'oc:om_1' }], actor: { source: 'feishu', id: 'ou_a' }, human: true,

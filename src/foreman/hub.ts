@@ -8,7 +8,7 @@
  * Nothing in this file writes the ledger. Frames that carry facts about work are handed to `onFrame`, which the
  * runtime maps onto the Engine; a hub that changed tickets itself would be a second writer, which the design forbids.
  */
-import { FrameDedupe, FrameError, FOREMAN_PROTOCOL_VERSION, encodeFrame, parseFrame, type Frame, type Root } from './protocol.ts'
+import { FrameDedupe, FrameError, FOREMAN_PROTOCOL_VERSION, encodeFrame, parseFrame, type Capability, type Frame, type Root } from './protocol.ts'
 import type { DeviceRecord } from './devices.ts'
 import type { Online } from './selector.ts'
 
@@ -77,6 +77,8 @@ interface Connection {
   /** A heartbeat's count, when it disagrees with `running`; kept so `running()` answers with the freshest fact. */
   runningCount?: number
   lastSeenAt: string
+  /** What this device announced it can do beyond the baseline; empty for a device older than capabilities. */
+  capabilities: Capability[]
   readonly dedupe: FrameDedupe
 }
 
@@ -124,7 +126,7 @@ export class Hub {
    * cannot disturb a working one, while a genuine reconnect still takes over once it has proved itself.
    */
   attach(deviceId: string, channel: Channel): void {
-    const connection: Connection = { channel, handshook: false, running: [], lastSeenAt: this.now(), dedupe: new FrameDedupe(new Set()) }
+    const connection: Connection = { channel, handshook: false, running: [], lastSeenAt: this.now(), capabilities: [], dedupe: new FrameDedupe(new Set()) }
     // The claim is parked until the token is verified; a second connection under the same id simply waits its turn.
     this.pending.set(channel, { deviceId, connection })
     channel.onMessage(text => this.receive(deviceId, connection, text))
@@ -167,6 +169,14 @@ export class Hub {
     const connection = this.connections.get(deviceId)
     return connection?.runningCount ?? connection?.running.length ?? 0
   }
+
+  /**
+   * What a connected device announced it can do; empty for a device that predates capabilities or is not connected.
+   *
+   * Callers use this to skip an optional feature rather than send a frame the device cannot answer — a device on an
+   * older release keeps taking work, just without the newer detail.
+   */
+  capabilitiesOf(deviceId: string): Capability[] { return [...(this.connections.get(deviceId)?.capabilities ?? [])] }
 
   /**
    * Send a frame to a connected device.
@@ -246,6 +256,10 @@ export class Hub {
     }
     connection.handshook = true
     connection.token = frame.token
+    // What this device can do beyond the baseline. An older device announces nothing, and every optional behaviour is
+    // then simply skipped rather than the connection being refused: a laptop that sat switched off must not come back
+    // to a hub it can never talk to again.
+    connection.capabilities = [...(frame.capabilities ?? [])]
     connection.running = [...frame.running]
     connection.runningCount = connection.running.length
     connection.lastSeenAt = this.now()

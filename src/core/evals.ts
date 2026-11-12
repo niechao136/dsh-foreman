@@ -307,7 +307,11 @@ export class Evals extends EnginePart {
     const at = this.now()
     const basis = { ...evaluation.basis, ...(outcome.rules ? { rules: outcome.rules } : {}) }
     const { strength, policyVersion, actor } = evaluation
-    const mandate: Mandate = { strength, policyVersion, basis, actor, scope: outcome.scope }
+    // The ticket remembers the topic its origin named, so a later request about the same thing can find it. A trigger
+    // without one leaves the mandate without one, which is the behaviour before topics existed.
+    const topic = this.repo.triggers.get(evaluation.primary ?? evaluation.triggerIds[0] ?? '')?.meta.topic
+    const mandate: Mandate = { strength, policyVersion, basis, actor, scope: outcome.scope,
+      ...typeof topic === 'string' && topic !== '' ? { topic } : {} }
     const ticketId = key('ticket', evaluation.id)
     const audit = outcome.audit ? { audit: outcome.audit } : {}
     const decision = this.finish(thread, evaluation, { kind: 'accept', reason: reasonOf(outcome.reason), ...audit, mandate, ticketId })

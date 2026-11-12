@@ -89,6 +89,31 @@ describe('Channels', () => {
     vi.spyOn(value, 'run').mockRejectedValueOnce(commandError(timedOut, 'lark-bot'))
     await expect(send(value, { ...feishu, text: 'The change was withdrawn' })).rejects.toThrow('lark-bot timed out after 90 s')
   })
+  /**
+   * A body message that no one has answered in the topic yet has no thread, and Feishu rejects a threaded reply to it
+   * with a bare 2200 that it marks retryable — so the message retried forever and never appeared. The same message
+   * accepts a plain reply, which is what the fallback must use.
+   */
+  it('falls back to a plain reply when the target message has no thread to reply in', async () => {
+    const value = commands()
+    const run = vi.spyOn(value, 'run')
+    run.mockRejectedValueOnce(lark(2200, 'Something went wrong. Please contact technical support (2200)'))
+    run.mockResolvedValueOnce('{"ok":true,"data":{}}')
+    expect(await send(value, feishu)).toBe('sent')
+    const [threaded, plain] = run.mock.calls.map(call => call[1] as string[])
+    expect(threaded).toContain('--reply-in-thread')
+    expect(plain).not.toContain('--reply-in-thread')
+    // The same idempotency key: Feishu treats the two attempts as one message, so the fallback cannot double-post.
+    expect(threaded![threaded!.indexOf('--idempotency-key') + 1]).toBe(plain![plain!.indexOf('--idempotency-key') + 1])
+  })
+  it('still retries a 2200 that the fallback cannot deliver either', async () => {
+    const value = commands()
+    const run = vi.spyOn(value, 'run')
+    run.mockRejectedValue(lark(2200, 'Something went wrong (2200)'))
+    await expect(send(value, feishu)).rejects.toThrow('Something went wrong (2200)')
+    // Two attempts, not one: the threaded try and the plain fallback.
+    expect(run).toHaveBeenCalledTimes(2)
+  })
   it('drop a GitHub reply to an Issue that is deleted or locked, and keep others for a retry', async () => {
     const value = commands()
     vi.spyOn(value, 'pages').mockResolvedValue([])

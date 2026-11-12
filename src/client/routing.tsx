@@ -20,6 +20,8 @@ import { Hint, Section } from './widgets.tsx'
 type Routing = SettingsView['blocks']['routing']['value']
 type ChatRow = Routing['chats'][number]
 type RepoRow = Routing['repositories'][number]
+/** A project as the page edits it: one directory, one set of device labels, and every repository that runs there. */
+type Project = { workspace: string; labels?: string[]; repositories: string[] }
 /** A draft row keeps its list position stable while it is edited, so a key never moves under the cursor. */
 type Draft<Row> = Row & { key: string }
 
@@ -91,29 +93,90 @@ function ChatRows({ rows, onChange, chats }: {
   </Section>
 }
 
-function RepositoryRows({ rows, onChange, repositories }: {
-  rows: Draft<RepoRow>[]; onChange: (next: Draft<RepoRow>[]) => void
+/**
+ * Group stored repository rows into projects.
+ *
+ * The stored shape is one row per repository, because the lookup is per repository and a repository belongs to one
+ * project. What an operator thinks in is the opposite: one checkout that serves several repositories — a package and
+ * its companion, say — with one directory and one set of device labels. Rows are therefore grouped back into projects
+ * for editing, by the pair that defines a project, and written out again as one row per repository.
+ *
+ * Grouping by `workspace` + `labels` rather than by directory alone matters: two rows naming the same directory but
+ * different device labels are genuinely two projects (the labels constrain who may take the work), and merging them
+ * would silently widen one of them.
+ */
+function projectsOf(rows: readonly RepoRow[]): Draft<Project>[] {
+  const groups = new Map<string, Draft<Project>>()
+  for (const row of rows) {
+    // Sorted labels: `['a','b']` and `['b','a']` name the same set, and must not split into two projects.
+    const labels = [...(row.labels ?? [])].sort()
+    const id = JSON.stringify([row.workspace, labels])
+    const existing = groups.get(id)
+    if (existing) existing.repositories.push(row.repository)
+    else groups.set(id, { key: newKey(), workspace: row.workspace, labels: labels.length ? labels : undefined,
+      repositories: [row.repository] })
+  }
+  return [...groups.values()]
+}
+/** One row per repository, in project order, which is the shape the settings schema and the lookup both expect. */
+const repoSettings = (projects: readonly Draft<Project>[]): RepoRow[] =>  projects.flatMap(project => project.repositories
+    .filter(repository => repository !== '')
+    .map(repository => ({ repository, workspace: project.workspace, ...project.labels?.length ? { labels: [...project.labels] } : {} })))
+
+/** The projects the operator may choose from, and the repositories they may put in one. */
+function ProjectRow({ project, repositories, onChange }: {
+  project: Draft<Project>; repositories: { value: string; label: string }[]
+  onChange: (next: Draft<Project>) => void
+}) {
+  const { t } = usePanel()
+  const toggle = (name: string) => {
+    const has = project.repositories.includes(name)
+    onChange({ ...project, repositories: has ? project.repositories.filter(item => item !== name) : [...project.repositories, name] })
+  }
+  // A stored repository the GitHub Source no longer lists still shows, so an edit never drops it without a word.
+  const known = new Set(repositories.map(option => option.value))
+  const extra = project.repositories.filter(name => !known.has(name))
+  return <li className="dt-row">
+    <FieldGrid>
+      <Cell label={t('routingWorkspace')} value={project.workspace} placeholder="/home/me/src/project"
+        onChange={workspace => onChange({ ...project, workspace })} />
+      {labelsCell(project.labels, labels => onChange({ ...project, labels: labels.length ? labels : undefined }), t('routingLabels'))}
+    </FieldGrid>
+    <Field label={t('routingProjectRepositories')}>
+      {repositories.length || extra.length ? <div className="dt-checklist">
+        {repositories.map(option => <label key={option.value} className="dt-check">
+          <input type="checkbox" checked={project.repositories.includes(option.value)} onChange={() => toggle(option.value)} />
+          <span>{option.label}</span>
+        </label>)}
+        {extra.map(name => <label key={name} className="dt-check">
+          <input type="checkbox" checked onChange={() => toggle(name)} />
+          <span>{t('routingRepositoryUnknown', { name })}</span>
+        </label>)}
+      </div> : <Hint>{t('routingNoRepositories')}</Hint>}
+    </Field>
+    {project.repositories.length > 1 && <p className="dt-hint">{t('routingSharedWorkspace', { count: String(project.repositories.length) })}</p>}
+  </li>
+}
+
+function ProjectRows({ projects, onChange, repositories }: {
+  projects: Draft<Project>[]; onChange: (next: Draft<Project>[]) => void
   repositories: { value: string; label: string }[]
 }) {
   const { t } = usePanel()
-  const edit = (index: number, patch: Partial<RepoRow>) =>
-    onChange(rows.map((row, at) => at === index ? { ...row, ...patch } : row))
+  const edit = (index: number, next: Draft<Project>) => onChange(projects.map((item, at) => at === index ? next : item))
+  // 一个仓库只能属于一个项目：被别的项目占用的仓库在这里标出来，避免同一个仓库落进两个目录。
+  const taken = new Set(projects.flatMap(project => project.repositories))
   return <Section title={t('routingRepositories')} hint={t('routingRepositoriesHint')}
     action={<Button variant="ghost" size="sm" icon={<Icon name="plus" />}
-      onClick={() => onChange([...rows, { key: newKey(), repository: '', workspace: '' }])}>{t('routingAddRepository')}</Button>}>
-    {rows.length ? <ul className="dt-list">{rows.map((row, index) => <li className="dt-row" key={row.key}>
-      <FieldGrid>
-        <SelectCell label={t('routingRepository')} value={row.repository} options={repositories}
-          onChange={repository => edit(index, { repository })} />
-        <Cell label={t('routingWorkspace')} value={row.workspace} placeholder="/home/me/src/project"
-          onChange={workspace => edit(index, { workspace })} />
-        {labelsCell(row.labels, labels => edit(index, { labels: labels.length ? labels : undefined }), t('routingLabels'))}
-      </FieldGrid>
+      onClick={() => onChange([...projects, { key: newKey(), workspace: '', repositories: [] }])}>{t('routingAddProject')}</Button>}>
+    {projects.length ? <ul className="dt-list">{projects.map((project, index) => <li className="dt-row" key={project.key}>
+      <ProjectRow project={project} repositories={repositories} onChange={next => edit(index, next)} />
       <div className="dt-actions">
         <Button variant="ghost" size="sm" icon={<Icon name="trash" />}
-          onClick={() => onChange(rows.filter((_, at) => at !== index))}>{t('remove')}</Button>
+          onClick={() => onChange(projects.filter((_, at) => at !== index))}>{t('remove')}</Button>
       </div>
     </li>)}</ul> : <Hint>{t('routingRepositoriesEmpty')}</Hint>}
+    {taken.size > 0 && <Hint>{t('routingRepositoryTaken')}</Hint>}
   </Section>
 }
 
@@ -145,21 +208,29 @@ function RoutingBlock() {
   const block = useSettings().settings.blocks.routing
   // Rows keep a synthetic key while edited and lose it on save, so the stored value is exactly the schema's shape.
   const [chats, setChats] = useState<Draft<ChatRow>[]>(() => labelled(block.value.chats))
-  const [repos, setRepos] = useState<Draft<RepoRow>[]>(() => labelled(block.value.repositories))
+  // Repositories are edited as projects, then written back as one row per repository.
+  const [projects, setProjects] = useState<Draft<Project>[]>(() => projectsOf(block.value.repositories))
   // `saved` is the STORED value. The earlier code passed the edited rows as `saved`, so every draft compared equal to
   // itself, `dirty` stayed false, and the SaveBar — the only way to apply a change — never rendered.
   const draft = useBlockDraft<Routing>('routing', block.value, block.revision)
   const { chats: chatChoices, repositories } = useChoices()
-  const editChats = (next: Draft<ChatRow>[]) => { setChats(next); draft.edit({ chats: plain(next), repositories: plain(repos) }) }
-  const editRepos = (next: Draft<RepoRow>[]) => { setRepos(next); draft.edit({ chats: plain(chats), repositories: plain(next) }) }
+  const write = (nextChats: Draft<ChatRow>[], nextProjects: Draft<Project>[]) => draft.edit({ chats: plain(nextChats),
+    repositories: repoSettings(nextProjects) })
+  const editChats = (next: Draft<ChatRow>[]) => { setChats(next); write(next, projects) }
+  const editProjects = (next: Draft<Project>[]) => { setProjects(next); write(chats, next) }
+  const reset = () => {
+    draft.discard()
+    setChats(labelled(block.value.chats))
+    setProjects(projectsOf(block.value.repositories))
+  }
   return <form className="dt-form dt-block" onSubmit={event => { void draft.submit(event) }}>
     <Fields disabled={draft.busy}>
       <h2 className="dt-block-title">{t('routingTitle')}</h2>
       <p className="dt-flow">{t('routingIntro')}</p>
-      <RepositoryRows rows={repos} onChange={editRepos} repositories={repositories} />
+      <ProjectRows projects={projects} onChange={editProjects} repositories={repositories} />
       <ChatRows rows={chats} onChange={editChats} chats={chatChoices} />
     </Fields>
-    <SaveBar {...draft} onDiscard={() => { draft.discard(); setChats(labelled(block.value.chats)); setRepos(labelled(block.value.repositories)) }} />
+    <SaveBar {...draft} onDiscard={reset} />
   </form>
 }
 

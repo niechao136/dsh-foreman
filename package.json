@@ -2,7 +2,7 @@
   "name": "dsh-foreman",
   "author": "niechao136",
   "license": "MIT",
-  "version": "0.5.9",
+  "version": "0.6.0",
   "description": "dsh-foreman：主 loop 在多设备上派单的 DSH bundle：需求来自本机操作者的主会话而不是 GitHub/飞书，每个工作区各有一条主会话，主会话只负责路由，真正的活儿派给 Worker 在该工作区目录里执行。",
   "type": "module",
   "main": "lib/index.js",

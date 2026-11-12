@@ -300,10 +300,29 @@ function EvalBlock() {
   </form>
 }
 
+/**
+ * The Eval group keeps only the accept mode, the timeout and the assessor model.
+ *
+ * The Policy — the accept rules, the per-Source sender lists and the admission table — used to share this page, with
+ * no navigation entry of its own. That made "who may originate work" effectively unreachable, and every sender was
+ * judged not listed. It has its own group now (`PolicySettings`).
+ */
 export function EvalSettings({ version }: { version?: string | undefined }) {
   return <div className="dt-form">
-    <PolicyBlock />
     <EvalBlock />
-    <ConfigHistory blocks={['policy', 'eval']} versions {...version ? { focus: version } : {}} />
+    <ConfigHistory blocks={['eval']} versions {...version ? { focus: version } : {}} />
+  </div>
+}
+
+/**
+ * The Policy group: accept rules, the senders allowed on each Source, and the admission table.
+ *
+ * Split out of `eval.tsx` without changing a line of `PolicyBlock`: the block already owns its own save, so the two
+ * groups stay independently saveable.
+ */
+export function PolicySettings({ version }: { version?: string | undefined }) {
+  return <div className="dt-form">
+    <PolicyBlock />
+    <ConfigHistory blocks={['policy']} versions {...version ? { focus: version } : {}} />
   </div>
 }

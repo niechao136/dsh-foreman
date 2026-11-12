@@ -78,3 +78,43 @@ it('offers the chats the Feishu Source knows as options instead of making the op
   expect(options.length).toBeGreaterThan(2)
   void server
 })
+
+/**
+ * Two repositories in one project directory is one project, not two.
+ *
+ * The stored shape is one row per repository, because the lookup is per repository. An operator editing the page,
+ * though, has one checkout that serves a package and its companion — exactly the dsh-foreman / dsh-foreman-node case.
+ * Seeing two rows with the same directory makes that read as two projects and invites editing them apart.
+ */
+it('groups repositories that share a directory into one project row', async () => {
+  // Seed before the page mounts: rendering twice would leave two pages in the document.
+  server.settings.routing = { chats: [],
+    repositories: [{ repository: 'acme/widgets', workspace: '/srv/widgets' },
+      { repository: 'acme/widgets-node', workspace: '/srv/widgets' }] }
+  await render()
+  // One project row listing both repositories as checked boxes, not two rows with the same directory.
+  const boxes = Array.from(document.querySelectorAll('.dt-checklist input')) as HTMLInputElement[]
+  expect(boxes.length).toBe(2)
+  expect(boxes.every(input => input.checked)).toBe(true)
+  expect(document.querySelectorAll('.dt-checklist').length).toBe(1)
+})
+
+/**
+ * Editing one repository must not disturb the other in the same project.
+ *
+ * The page writes the whole table back on every keystroke, so a project that lost its second repository would delete
+ * that routing row on save — and the ticket for it would silently fall back to running on the host.
+ */
+it('saves every repository of a shared project, not only the one that was touched', async () => {
+  server.settings.routing = { chats: [],
+    repositories: [{ repository: 'acme/widgets', workspace: '/srv/widgets' }, { repository: 'acme/widgets-node', workspace: '/srv/widgets' }] }
+  await render()
+  const input = document.querySelector('.dt-checklist')!.closest('.dt-row')!.querySelector('input') as HTMLInputElement
+  await type(input, '/srv/shared')
+  await settle()
+  await act(async () => { find(zh.save, 'button').click() })
+  await settle()
+  const saved = server.settings.routing.repositories
+  expect(saved.map(row => row.repository).sort()).toEqual(['acme/widgets', 'acme/widgets-node'])
+  expect(saved.every(row => row.workspace === '/srv/shared')).toBe(true)
+})

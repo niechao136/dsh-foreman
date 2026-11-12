@@ -4,7 +4,7 @@ import type { StateView } from './api.ts'
 import { Dot } from './controls.tsx'
 import { DeploymentPage, type DeploymentForm } from './deployment.tsx'
 import { DevicesSettings } from './devices.tsx'
-import { EvalSettings } from './eval.tsx'
+import { EvalSettings, PolicySettings } from './eval.tsx'
 import { LogsSettings } from './logs.tsx'
 import { ExecutionSettings } from './execution.tsx'
 import { PromptsPage } from './prompts.tsx'
@@ -71,6 +71,7 @@ export function SettingsPage({ group, query, state, deploymentForm }: {
   const content = (() => {
     switch (group) {
       case 'source': return <SourceSettings {...query.source ? { focus: query.source } : {}} />
+      case 'policy': return <PolicySettings version={query.version} />
       case 'eval': return <EvalSettings version={query.version} />
       case 'execution': return <ExecutionSettings />
       case 'routing': return <RoutingSettings version={query.version} />

@@ -19,7 +19,7 @@ The tabs follow the work people watch: **Overview**, **Eval**, **Execution**, an
 | Overview | Tickets needing action, system problems, one line per Source with its state, activity counts for the last 24 hours, and Executor load. Each block links to its detailed page |
 | Execution | The Ticket list filtered by Open, Pending, Working, Waiting for a Trigger or Ended, with Pause processing as the page action. Each Ticket shows its stage, and a running Ticket opens its Session from the row |
 | Eval | Metrics for the period (all Decisions, accept/reopen, stop, ignore, unavailable) above the Decision log, filtered by All, accept/reopen, stop, ignore, unavailable and by the last 24 hours. The selected Decision's reasons, matched rules and the context Eval saw are in the right-hand column; the row list is the history |
-| Settings | Sources, Eval, Execution, Prompts, Deployment and Logs. Each stage group includes its save history |
+| Settings | Sources, Policy, Eval, Execution, Projects, Devices, Prompts, Deployment and Logs. Each group includes its save history |
 | Settings › Logs | Every Trigger, Decision, Ticket event and dropped reply merged by time, filtered by kind, level (info, warn, error) and free text, with links back to the Thread, Decision or Ticket. The page says it is `GET /orchestrator/api/logs` |
 
 ### Reading individual records
@@ -33,7 +33,11 @@ Ticket details show the originating Trigger, Decision and reason, scope and Poli
 ## Settings groups
 
 - **Sources:** one card per Source with its switch, fields and verified account facts. GitHub also offers receive-all switches for new Issues, pull requests, comments and default-branch CI. Polling and read limits are under Advanced.
-- **Eval:** the Policy version and rules, followed by **On each Source** and the Eval settings. Each Source tab contains its allowed list, membership sync, admission table and bot list. Sync runs at startup and on **Sync now**. The admission table distinguishes receiving scope, sender membership and whether the message addresses the agent. Eval settings select the accept mode, timeout and assessment model.
+- **Policy:** the accept rules, the Policy version, and **On each Source**. Each Source tab contains its allowed list, membership sync, admission table and bot list. Sync runs at startup and on **Sync now**. The admission table distinguishes receiving scope, sender membership and whether the message addresses the agent.
+
+  Why a group of its own: these fields used to sit inside Eval with no navigation entry, so "who may originate work" could not be edited from the panel at all. With `policy.sources` empty, the admission defaults admit nobody, and every message was rejected as **sender not on the Source's list**.
+- **Eval:** the accept mode (**off**, **observe**, **auto**), the timeout and the assessment model.
+- **Projects** (项目对应): which chat, and which repositories, belong to which project directory, and which device labels that work needs. Repositories are edited as projects: a project is one directory plus a group of repositories, so a package and its companion share one directory and one set of labels. The stored shape stays one row per repository, because the lookup is per repository; grouping happens for editing only. **An unlisted repository runs on the host**, since without a project the ticket cannot name a device.
 - **Execution:** worker model, concurrency, directory root, prepare command and blocked commands. Clicking an available variable inserts it into the prepare command.
 - **Prompts:** **Edit** changes team sections, built-in parts and skills. **Full prompt** shows the assembled text and compares it with saved text or defaults. **History** lists versions. Edited built-in parts are marked changed and can be reset; templates list their required placeholders.
 

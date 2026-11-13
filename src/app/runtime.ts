@@ -45,6 +45,7 @@ import { serve, type Served } from '../foreman/ws.ts'
 import { prepareTicketWithForeman, reselectForRetry, type PrepareInput } from '../foreman/prepare.ts'
 import { deviceRoster } from '../foreman/roster.ts'
 import type { Pending } from './import.ts'
+import { isOwnWorktree } from './import.ts'
 import { routeIndexOf, chatRouteOf, repositoryRouteOf, type ChatIndex } from '../foreman/routing.ts'
 import { canonicalPath, samePath } from '../foreman/path.ts'
 import { FOREMAN_PROTOCOL_VERSION, supports, type PartFrame } from '../foreman/protocol.ts'
@@ -645,10 +646,41 @@ export class Runtime extends Service implements SourceHost {
     // Remote work first: a hub restart says nothing about what a device did, so those assignments are handed to a
     // person rather than resumed. `DshExecutor.resume` then skips them (design 5.8).
     this.blockRemoteAssignments()
+    // Then the tickets a restore brought in whose project directories this machine does not have. See the method.
+    this.blockMissingProjects()
     this.executor.resume()
     this.passes.start()
     this.effects.start()
     this.runtimeHealth.set({ state: 'ready', detail: 'Orchestrator is ready', at: now() })
+  }
+
+  /**
+   * Report every open ticket whose work directory is a project this machine cannot reach as `blocked`, once, at startup.
+   *
+   * A restore deliberately does not refuse an archive whose projects have not been cloned yet: a fresh machine has not
+   * cloned anything, and making the operator clone first would also make the order unforgiving. The gap has to show up
+   * somewhere, though, and the honest place is the ticket itself — `blocked` is what `blockRemoteAssignments` uses for
+   * "a person decides whether to wait, retry, or move the work", which is exactly this case.
+   *
+   * It runs at startup rather than right after the swap because the ledger has just been replaced and the executor is
+   * not up yet; doing it here also covers the same state after any later restart, when the operator has cloned some of
+   * the projects but not all. A directory the executor creates on demand is skipped: its absence is the normal state
+   * before the ticket runs, and blocking on it would block every ticket.
+   */
+  private blockMissingProjects(): void {
+    for (const ticket of this.store.tickets.open()) {
+      const directory = ticket.execution?.directory
+      if (typeof directory !== 'string' || directory === '') continue
+      if (isOwnWorktree(directory, ticket.id)) continue
+      if (existsSync(directory)) continue
+      try {
+        this.engine.report(ticket.id, { state: 'blocked',
+          summary: `its working directory ${directory} does not exist on this machine; clone the project, then retry it` })
+      } catch (error) {
+        // A ticket that ended meanwhile is not an error: its report is simply no longer needed.
+        this.ctx.logger.warn('dsh-foreman could not report %s blocked for a missing directory: %s', ticket.id, String(error))
+      }
+    }
   }
 
   /**

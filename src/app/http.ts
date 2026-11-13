@@ -415,26 +415,29 @@ function routes(runtime: HttpHost): Routes {
      * directory's lock released — replacing the files before that would swap the tree under an open connection. The
      * restart is deferred to the next macrotask so this response goes out first: the caller is the panel, and a panel
      * that never hears back cannot tell a restart from a hang.
+     *
+     * A missing project directory does **not** block this. A fresh machine has not cloned anything yet, and refusing
+     * would force the operator to get the order exactly right — clone everything, then import — with no way to say
+     * "yes, I am about to clone them". The affected tickets are marked blocked instead, so the gap is visible on the
+     * board and each one can be retried from the panel once its project is there.
      */
     'POST migration/apply': async () => {
       const pending = runtime.pendingRestore
       if (pending === undefined) throw new RouteError(400, 'Nothing has been uploaded to restore')
+      // Only the problems nothing can repair: an unreadable ledger, a schema this build cannot migrate.
       if (pending.report.problems.length) throw new RouteError(400, `This archive cannot be restored: ${pending.report.problems.join('; ')}`)
-      // Refuse the one case that would be unrecoverable: an archive that names directories this machine lacks would
-      // restore into a hub that opens, counts its tickets, and cannot run them.
-      if (pending.report.missingDirectories.length) {
-        throw new RouteError(400, `The archive names ${pending.report.missingDirectories.length} work director`
-          + `${pending.report.missingDirectories.length === 1 ? 'y' : 'ies'} this machine does not have:\n`
-          + pending.report.missingDirectories.slice(0, 5).join('\n'))
-      }
       const home = homeOf(runtime.machine.stateDir)
+      const blocked = [...pending.report.affectedTickets]
+      const missing = [...pending.report.missingDirectories]
       runtime.pendingRestore = undefined
       // Stop first: this is what closes the database and releases the lock the swap depends on.
       await runtime.stop()
       const result = swap(home, pending.unpacked, new Date())
       runtime.log?.info?.(`dsh-foreman restored ${home}; the previous home is at ${result.backup}`)
       setTimeout(() => runtime.restart(), 50)
-      return { restored: true as const, backup: result.backup, moved: result.moved, restarting: true as const }
+      return { restored: true as const, backup: result.backup, moved: result.moved, restarting: true as const,
+        // Returned so the panel can say what needs attention rather than implying the hub is fully working again.
+        blocked, missingDirectories: missing }
     },
     /** Abandons an uploaded archive without touching the ledger. */
     'POST migration/cancel': () => {

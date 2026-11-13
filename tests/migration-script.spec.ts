@@ -117,24 +117,40 @@ describe('the migration script', () => {
     expect(existsSync(wal) ? statSync(wal).size : 0).toBe(0)
   }, SLOW)
   /**
-   * A ledger carries absolute work directories. Unpacked at a different root it still opens and counts correctly, so
-   * the failure would only appear when a worker tried to enter a directory that is not there — hence this check.
+   * A ledger carries absolute work directories. A missing one is reported and does not fail: a fresh machine has not
+   * cloned the projects yet, and its tickets are marked blocked at startup so the gap shows on the board.
    */
-  it('refuses a ledger whose recorded work directories are not on this machine', () => {
+  it('reports a work directory this machine lacks without failing', () => {
     const missing = join(tmpdir(), 'foreman-missing-project-root', 'work', 't0')
     const root = populated({ tickets: [{ directory: missing }] })
-    expect(() => run('verify', '--home', root)).toThrow()
-    // The report names the directory instead of only counting them.
+    const verify = run('verify', '--home', root)
+    expect(verify).toContain('recorded work directories not on this machine')
+    // It names the directory rather than only counting them, and says what happens to its ticket.
+    expect(verify).toContain(missing)
+    expect(verify).toContain('will be blocked')
+  }, SLOW)
+  /** `--strict-paths` is the opposite answer, for a final check before switching a machine over. */
+  it('fails on those directories when asked to be strict', () => {
+    const missing = join(tmpdir(), 'foreman-missing-project-root', 'work', 't0')
+    const root = populated({ tickets: [{ directory: missing }] })
+    expect(() => run('verify', '--home', root, '--strict-paths')).toThrow()
     let message = ''
-    try { run('verify', '--home', root) } catch (error) { message = String((error as { stderr?: string }).stderr ?? error) }
+    try { run('verify', '--home', root, '--strict-paths') } catch (error) { message = String((error as { stderr?: string }).stderr ?? error) }
     expect(message).toContain(missing)
   }, SLOW)
-  it('reports those directories without failing when asked, which a fresh machine needs before cloning', () => {
-    const missing = join(tmpdir(), 'foreman-missing-project-root', 'work', 't0')
-    const root = populated({ tickets: [{ directory: missing }] })
-    const verify = run('verify', '--home', root, '--allow-missing-paths')
-    expect(verify).toContain('recorded work directories not on this machine')
-    expect(verify).toContain(missing)
+  /**
+   * A directory the executor creates on demand ends in the ticket's id. Its absence is the normal state before the
+   * ticket runs, so reporting it would tell the operator to fix something that fixes itself.
+   */
+  it('ignores a work directory the executor makes for the ticket itself', () => {
+    const ticketId = 'abcdef1234567890'
+    const own = join(tmpdir(), 'foreman-own-worktree', `some-name-${ticketId.slice(0, 12)}`)
+    const root = populated()
+    const db = new DatabaseSync(join(root, DATABASE))
+    db.prepare('INSERT INTO ticket VALUES (?, ?)').run(ticketId, JSON.stringify({ execution: { directory: own } }))
+    db.close()
+    // Not created on disk, and still not reported: the ticket makes it when it runs.
+    expect(run('verify', '--home', root)).not.toContain('recorded work directories')
   }, SLOW)
   it('passes when every recorded directory exists here', () => {
     const root = populated()

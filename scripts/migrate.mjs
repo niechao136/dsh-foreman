@@ -34,11 +34,12 @@ const usage = `Usage:
   node scripts/migrate.mjs plan       --home <dir>
   node scripts/migrate.mjs checkpoint --home <dir>
   node scripts/migrate.mjs pack       --home <dir> --out <tar>
-  node scripts/migrate.mjs verify     --home <dir> [--allow-missing-paths]
+  node scripts/migrate.mjs verify     --home <dir> [--strict-paths]
 
 --home is the DSH_HOME of the instance being moved (default: $DSH_HOME, else ~/.dsh).
-verify fails when the ledger names work directories this machine does not have; --allow-missing-paths reports them
-instead, which is what a fresh machine's first verify needs before its projects are cloned.`
+verify reports work directories that open tickets name but this machine lacks, and continues: a fresh machine has not
+cloned the projects yet, and their tickets are marked blocked at startup so the gap shows on the board. Pass
+--strict-paths to make those directories a failure instead, which is what a final check before switching over wants.`
 
 /** Reads `--name value` pairs, and flags; a flag's next token being absent or another flag is what makes it one. */
 function options(argv) {
@@ -143,22 +144,27 @@ function pack(home, out) {
 }
 
 /**
- * The work directories open tickets name, so a move into a differently-rooted home can be refused.
+ * The work directories open tickets name, with the ticket each belongs to, so a move can refuse or warn intelligently.
  *
  * Only open tickets count: a work directory is created when work starts and cleaned up after, so a finished ticket
- * still carries the path it used, and demanding that path exist would refuse the hub's own export.
+ * still carries the path it used, and demanding that path exist would refuse the hub's own export. A directory the
+ * executor makes on demand (it ends in the ticket's id) is skipped as well — its absence is the normal state before
+ * the ticket runs.
  */
 function ledgerDirectories(home) {
   const database = requireHome(home)
   const db = new DatabaseSync(database, { readOnly: true })
   try {
     const roots = new Set()
-    for (const row of db.prepare('SELECT value FROM ticket').all()) {
+    for (const row of db.prepare('SELECT id, value FROM ticket').all()) {
       let ticket
       try { ticket = JSON.parse(String(row.value)) } catch { continue }
       if (ticket?.ended) continue
       const directory = ticket?.execution?.directory
-      if (typeof directory === 'string' && directory !== '') roots.add(directory)
+      if (typeof directory !== 'string' || directory === '') continue
+      // Same rule as the runtime: `<name>-<first 12 of the ticket id>` is created when the ticket runs.
+      if (directory.endsWith(`-${String(row.id).slice(0, 12)}`)) continue
+      roots.add(directory)
     }
     return [...roots]
   } catch { return [] } finally { db.close() }
@@ -171,7 +177,7 @@ function ledgerDirectories(home) {
  * compares it with the old machine's. The directory check is the part a count cannot make: a ledger whose rows name
  * directories that are not here opens, counts correctly, and then cannot run a single ticket.
  */
-function verify(home, allowMissingPaths) {
+function verify(home, allowMissingPaths, strictPaths) {
   checkpoint(home)
   const counts = {}
   const counting = new DatabaseSync(requireHome(home), { readOnly: true })
@@ -193,12 +199,17 @@ function verify(home, allowMissingPaths) {
   if (missing.length) {
     const shown = missing.slice(0, 5).map(path => `  ${path}`).join('\n')
     const more = missing.length > 5 ? `\n  and ${missing.length - 5} more` : ''
-    if (allowMissingPaths) lines.push('', `recorded work directories not on this machine (${missing.length}):`, `${shown}${more}`)
-    else throw new Error([
+    // `--allow-missing-paths` and `--strict-paths` are the two explicit answers to a question the default cannot
+    // guess: a fresh machine legitimately has not cloned yet, while an operator checking a move wants it to fail.
+    if (strictPaths) throw new Error([
       ...lines, '', `recorded work directories not on this machine (${missing.length}):`, `${shown}${more}`, '',
-      'Unpack this ledger at the same absolute paths, or clone the projects first; pass --allow-missing-paths to report',
-      'them without failing. A ledger whose rows name other machines\' directories cannot run its tickets.',
+      'Unpack this ledger at the same absolute paths, or clone the projects first.',
     ].join('\n'))
+    // The default reports them and continues: the affected tickets are marked blocked at startup, so the gap shows on
+    // the board instead of making the whole restore unusable until every project happens to be cloned.
+    lines.push('', `recorded work directories not on this machine (${missing.length}); their tickets will be blocked:`,
+      `${shown}${more}`, '', 'Clone the projects and retry those tickets from the panel.')
+    if (allowMissingPaths) lines.push('(reported because --allow-missing-paths was given; this is also the default.)')
   }
   return lines.join('\n')
 }
@@ -217,7 +228,7 @@ try {
     const out = values.get('out')
     if (out === undefined || out === true) throw new Error(`pack needs --out <tar>\n\n${usage}`)
     console.log(`packed: ${pack(home, resolve(String(out)))}`)
-  } else if (command === 'verify') console.log(verify(home, values.get('allow-missing-paths') === true))
+  } else if (command === 'verify') console.log(verify(home, values.get('allow-missing-paths') === true, values.get('strict-paths') === true))
   else throw new Error(`unknown command ${command}\n\n${usage}`)
 } catch (error) {
   console.error(`migrate: ${error instanceof Error ? error.message : String(error)}`)

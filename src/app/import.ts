@@ -38,9 +38,20 @@ export interface RestoreReport {
   home: string
   tickets: string
   rows: Record<string, string>
-  /** Work directories the ledger names that this machine does not have. Empty is the normal, healthy case. */
+  /**
+   * Work directories that open tickets name and this machine does not have.
+   *
+   * Reported, not fatal. A fresh machine legitimately has not cloned the projects yet, and a restore that refused would
+   * force the operator to get the order exactly right — clone everything, then import — with no way to say "yes, I know,
+   * I am about to clone them". Each affected ticket is marked `blocked` after the restore so the gap is visible on the
+   * board rather than hidden in an import log.
+   *
+   * A work directory the executor creates itself (`<stateDir>/work/<name>`) is never listed: it is made on demand.
+   */
   missingDirectories: string[]
-  /** Fatal problems: the restore must not proceed while any is present. */
+  /** The tickets whose directory is missing, so the caller can mark exactly those blocked. */
+  affectedTickets: string[]
+  /** Fatal problems: the restore must not proceed while any is present. These are the ones nothing can repair. */
   problems: string[]
   /** Non-fatal notes, such as a missing `attachments` directory a hub never used. */
   notes: string[]
@@ -75,14 +86,32 @@ export function unpack(home: string, stateDir: string, archive: string, bytes: n
 }
 
 /**
+ * Whether a recorded directory is one the executor makes for a ticket, rather than a project the operator owns.
+ *
+ * `ticketExecution` builds a work directory as `<name>-<first 12 of the ticket id>` for every source that is not the
+ * local operator; the local source instead runs in the project directory itself, because that is where the person was
+ * working when they asked. So a directory ending in the ticket's own id is created on demand and needs no prerequisite,
+ * while anything else is a real project the machine has to have.
+ *
+ * Deliberately a narrow test — the exact suffix the executor writes — rather than "anything under a work folder": a
+ * configurable `executor.directory` can put work anywhere, and a project that happened to sit under a `work` directory
+ * would otherwise be skipped by the check.
+ */
+export function isOwnWorktree(directory: string, ticketId: string): boolean {
+  return directory.endsWith(`-${ticketId.slice(0, 12)}`)
+}
+
+/**
  * Check an unpacked tree before it is allowed to replace the live one.
  *
  * Three questions, in the order that makes a failure easy to explain:
  *
  * - **Is it a ledger?** It opens, and its schema version is one this build can read. A database this build is older
  *   than cannot be migrated forward, and opening it would fail after the swap instead of before it.
- * - **Does it describe this machine?** Every ticket's recorded work directory must exist here. This is the check a
- *   ticket count cannot make, and the reason a move into a differently-rooted home used to look successful.
+ * - **Does it describe this machine?** Work directories that open tickets name are compared with what is here. A
+ *   missing *project* is reported rather than refused: a fresh machine legitimately has not cloned yet, and its tickets
+ *   are marked blocked after the restore so the gap shows on the board. A missing *work directory* the executor creates
+ *   itself is not even reported — it is made when the ticket runs.
  * - **Is anything missing?** A carried entry that is absent is a note, not a failure: a hub that never received an
  *   attachment legitimately has no `attachments` directory.
  */
@@ -92,6 +121,7 @@ export function check(unpacked: string, bytes: number): RestoreReport {
   let tickets = '?'
   let rows: Record<string, string> = {}
   let missingDirectories: string[] = []
+  const affectedTickets: string[] = []
   const ledger = join(unpacked, DATABASE)
   try {
     const db = new DatabaseSync(ledger, { readOnly: true })
@@ -108,8 +138,8 @@ export function check(unpacked: string, bytes: number): RestoreReport {
         catch { rows[table] = 'absent'; problems.push(`the ledger has no ${table} table`) }
       }
       tickets = rows.ticket ?? '?'
-      const directories = new Set<string>()
-      for (const row of db.prepare('SELECT value FROM ticket').all() as { value: string }[]) {
+      const missing = new Set<string>()
+      for (const row of db.prepare('SELECT id, value FROM ticket').all() as { id: string; value: string }[]) {
         let ticket: { ended?: unknown; execution?: { directory?: unknown } }
         try { ticket = JSON.parse(row.value) as typeof ticket } catch { continue }
         // Only an open ticket needs its work directory: the directory is created when work starts and cleaned up
@@ -117,9 +147,14 @@ export function check(unpacked: string, bytes: number): RestoreReport {
         // Refusing a restore over a finished ticket would reject the hub's own export, the most common archive there is.
         if (ticket.ended) continue
         const directory = ticket.execution?.directory
-        if (typeof directory === 'string' && directory !== '') directories.add(directory)
+        if (typeof directory !== 'string' || directory === '') continue
+        // A work directory the executor creates on demand needs no prerequisite: its absence is the normal state
+        // before a ticket runs, so listing it would tell the operator to fix something that fixes itself. The name
+        // ends in the ticket's own id (`ticketWorktreeName`), which is what identifies one.
+        if (isOwnWorktree(directory, row.id)) continue
+        if (!existsSync(directory)) { missing.add(directory); affectedTickets.push(row.id) }
       }
-      missingDirectories = [...directories].filter(directory => !existsSync(directory))
+      missingDirectories = [...missing]
     } finally { db.close() }
   } catch (error) {
     problems.push(`the ledger could not be read: ${error instanceof Error ? error.message : String(error)}`)
@@ -132,7 +167,7 @@ export function check(unpacked: string, bytes: number): RestoreReport {
     // Without it every main Session loses its workspace, so the tickets exist but their conversations are ungrouped.
     notes.push('storages/workspace.json is missing: main Sessions will not keep their workspace')
   }
-  return { home: unpacked, tickets, rows, missingDirectories, problems, notes, bytes }
+  return { home: unpacked, tickets, rows, missingDirectories, affectedTickets, problems, notes, bytes }
 }
 
 /**

@@ -52,16 +52,40 @@ describe('restoring a hub', () => {
   })
 
   /**
-   * The check that a ticket count cannot make: an archive whose rows name directories this machine does not have would
-   * restore into a hub that opens, counts correctly, and cannot run a single ticket.
+   * A missing project is reported, not fatal: a fresh machine has not cloned yet, and refusing would force the operator
+   * to get the order exactly right. The affected tickets are marked blocked after the restore so the gap is visible.
    */
-  it('names work directories the archive expects but this machine lacks', () => {
+  it('reports a missing project directory without refusing the restore', () => {
     const missing = join(tmpdir(), 'foreman-absent-project', 'work', 't0')
     const root = home({ directories: [missing] })
     const archive = archiveOf(root)
     const stateDir = join(root, 'state', 'superagent')
-    const pending = unpack(root, stateDir, archive, 10)
-    expect(pending.report.missingDirectories).toEqual([missing])
+    const report = unpack(root, stateDir, archive, 10).report
+    expect(report.missingDirectories).toEqual([missing])
+    // The ticket that owns it is named, so exactly those can be marked blocked.
+    expect(report.affectedTickets).toEqual(['t0'])
+    // And nothing here makes the restore impossible.
+    expect(report.problems).toEqual([])
+    clearStaging(stateDir)
+    rmSync(root, { recursive: true, force: true }); rmSync(archive, { force: true })
+  })
+
+  /**
+   * A work directory the executor creates on demand ends in the ticket's id. Its absence is the normal state before the
+   * ticket runs, so it must not be reported as something the operator has to fix.
+   */
+  it('does not report a work directory the executor makes itself', () => {
+    const ticketId = 'abcdef1234567890'
+    const own = join(tmpdir(), 'foreman-own-work', `some-name-${ticketId.slice(0, 12)}`)
+    const root = home()
+    const db = new DatabaseSync(join(root, DATABASE))
+    db.prepare('INSERT INTO ticket VALUES (?, ?)').run(ticketId, JSON.stringify({ execution: { directory: own } }))
+    db.close()
+    const archive = archiveOf(root)
+    const stateDir = join(root, 'state', 'superagent')
+    const report = unpack(root, stateDir, archive, 1).report
+    expect(report.missingDirectories).toEqual([])
+    expect(report.affectedTickets).toEqual([])
     clearStaging(stateDir)
     rmSync(root, { recursive: true, force: true }); rmSync(archive, { force: true })
   })

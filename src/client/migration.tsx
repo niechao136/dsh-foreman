@@ -21,6 +21,8 @@ export interface RestoreReport {
   tickets: string
   rows: Record<string, string>
   missingDirectories: string[]
+  /** The tickets whose directory is missing; they are marked blocked after the restore. */
+  affectedTickets: string[]
   problems: string[]
   notes: string[]
   bytes: number
@@ -76,7 +78,7 @@ function RestoreCard({ canImport }: { canImport: boolean }) {
   const [report, setReport] = useState<RestoreReport | undefined>()
   const [error, setError] = useState<string | undefined>()
   const [busy, setBusy] = useState(false)
-  const [applied, setApplied] = useState<{ backup: string } | undefined>()
+  const [applied, setApplied] = useState<{ backup: string; blocked: string[] } | undefined>()
   const file = useRef<HTMLInputElement>(null)
 
   const upload = async () => {
@@ -97,13 +99,14 @@ function RestoreCard({ canImport }: { canImport: boolean }) {
     try {
       const response = await fetch('/orchestrator/migration/apply', { method: 'POST',
         headers: { 'x-orchestrator-request': '1', 'content-type': 'application/json' } })
-      const body = await response.json() as { backup?: string; error?: string }
+      const body = await response.json() as { backup?: string; blocked?: string[]; error?: string }
       if (!response.ok) { setError(body.error ?? t('loadFailed')); return }
-      setApplied({ backup: String(body.backup) })
+      setApplied({ backup: String(body.backup), blocked: body.blocked ?? [] })
     } catch (failure) { setError(errorText(failure)) } finally { setBusy(false) }
   }
 
-  const blocked = report !== undefined && (report.problems.length > 0 || report.missingDirectories.length > 0)
+  /** Only a fatal problem stops the restore; a missing project directory is something to see, not a refusal. */
+  const blocked = report !== undefined && report.problems.length > 0
   return <Section title={t('migrationImportTitle')} hint={t('migrationImportHint')}>
     {!canImport
       ? <Hint>{t('migrationExportUnavailable')}</Hint>
@@ -113,9 +116,13 @@ function RestoreCard({ canImport }: { canImport: boolean }) {
           <Button variant="outline" size="sm" busy={busy} disabled={busy} onClick={() => { void upload() }}>{t('migrationUpload')}</Button>
         </div>
         {error !== undefined && <ErrorLine error={error} title={t('loadFailed')} />}
-        {report !== undefined && <RestoreReport report={report} />}
+        {report !== undefined && <RestoreReportView report={report} />}
         {applied !== undefined
-          ? <Hint>{t('migrationApplied', { backup: applied.backup })}</Hint>
+          ? <>
+            <Hint>{t('migrationApplied', { backup: applied.backup })}</Hint>
+            {/* Naming the blocked tickets is the point of allowing a restore whose projects are not here yet. */}
+            {applied.blocked.length > 0 && <Hint>{t('migrationBlockedTickets', { count: String(applied.blocked.length) })}</Hint>}
+          </>
           : <Button variant="danger" size="sm" busy={busy} disabled={busy || blocked || report === undefined}
             onClick={() => { void apply() }}>{t('migrationApply')}</Button>}
       </>}
@@ -123,14 +130,15 @@ function RestoreCard({ canImport }: { canImport: boolean }) {
 }
 
 /** What the archive holds, and what would stop it from being restored. */
-function RestoreReport({ report }: { report: RestoreReport }) {
+function RestoreReportView({ report }: { report: RestoreReport }) {
   const { t } = usePanel()
-  const blocked = report.problems.length > 0 || report.missingDirectories.length > 0
+  const blocked = report.problems.length > 0
   return <div className="dt-restore-report">
     <p className="dt-hint">{t('migrationReportSummary', { tickets: report.tickets, bytes: size(report.bytes) })}</p>
     {report.problems.map(problem => <ErrorLine key={problem} error={problem} />)}
     {report.missingDirectories.length > 0 && <>
-      <ErrorLine error={t('migrationMissingDirs', { count: String(report.missingDirectories.length) })} />
+      {/* A warning rather than an error: the restore proceeds, and these tickets are blocked until the projects exist. */}
+      <Hint>{t('migrationMissingDirs', { count: String(report.missingDirectories.length) })}</Hint>
       <ul className="dt-restore-paths">{report.missingDirectories.slice(0, 8).map(path => <li key={path} className="dt-mono">{path}</li>)}</ul>
     </>}
     {report.notes.length > 0 && <Hint>{report.notes.join('; ')}</Hint>}

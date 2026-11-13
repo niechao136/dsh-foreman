@@ -142,7 +142,12 @@ function pack(home, out) {
   return out
 }
 
-/** The absolute work directories the ledger's tickets name, so a move into a differently-rooted home can be refused. */
+/**
+ * The work directories open tickets name, so a move into a differently-rooted home can be refused.
+ *
+ * Only open tickets count: a work directory is created when work starts and cleaned up after, so a finished ticket
+ * still carries the path it used, and demanding that path exist would refuse the hub's own export.
+ */
 function ledgerDirectories(home) {
   const database = requireHome(home)
   const db = new DatabaseSync(database, { readOnly: true })
@@ -151,6 +156,7 @@ function ledgerDirectories(home) {
     for (const row of db.prepare('SELECT value FROM ticket').all()) {
       let ticket
       try { ticket = JSON.parse(String(row.value)) } catch { continue }
+      if (ticket?.ended) continue
       const directory = ticket?.execution?.directory
       if (typeof directory === 'string' && directory !== '') roots.add(directory)
     }

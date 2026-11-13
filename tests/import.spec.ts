@@ -10,7 +10,7 @@ import { CARRIED, DATABASE } from '../src/app/migrate.ts'
 const canTar = process.platform !== 'win32'
 
 /** A home-shaped tree with a ledger; `directories` become the work directories its tickets name. */
-const home = (options: { directories?: string[]; schema?: string } = {}): string => {
+const home = (options: { directories?: string[]; ended?: string[]; schema?: string } = {}): string => {
   const root = mkdtempSync(join(tmpdir(), 'foreman-import-'))
   for (const dir of ['state/superagent', 'storages', 'sessions', 'profiles/web']) mkdirSync(join(root, dir), { recursive: true })
   writeFileSync(join(root, '.credentials.yaml'), 'version: 1\n')
@@ -21,6 +21,11 @@ const home = (options: { directories?: string[]; schema?: string } = {}): string
     CREATE TABLE ticket (id TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE trigger (id TEXT PRIMARY KEY, value TEXT NOT NULL)`)
   for (const [index, directory] of (options.directories ?? []).entries()) {
     db.prepare('INSERT INTO ticket VALUES (?, ?)').run(`t${index}`, JSON.stringify({ execution: { directory } }))
+  }
+  // Finished tickets: their work directory was cleaned up, so they must not be required to exist.
+  for (const [index, directory] of (options.ended ?? []).entries()) {
+    db.prepare('INSERT INTO ticket VALUES (?, ?)').run(`e${index}`,
+      JSON.stringify({ ended: { at: '2026-11-01T00:00:00.000Z', by: 'human', outcome: 'done' }, execution: { directory } }))
   }
   db.close()
   return root
@@ -69,6 +74,22 @@ describe('restoring a hub', () => {
     expect(unpack(root, stateDir, archive, 10).report.missingDirectories).toEqual([])
     clearStaging(stateDir)
     rmSync(root, { recursive: true, force: true }); rmSync(archive, { force: true }); rmSync(present, { recursive: true, force: true })
+  })
+
+  /**
+   * A finished ticket's work directory is cleaned up after the work, so it legitimately names a path that is gone.
+   * Requiring it would refuse the hub's own export — the most common archive a restore ever sees.
+   */
+  it('does not demand the work directory of a finished ticket', () => {
+    const gone = join(tmpdir(), 'foreman-cleaned-up-work', 't0')
+    const root = home({ ended: [gone] })
+    const archive = archiveOf(root)
+    const stateDir = join(root, 'state', 'superagent')
+    const report = unpack(root, stateDir, archive, 1).report
+    expect(report.missingDirectories).toEqual([])
+    expect(report.problems).toEqual([])
+    clearStaging(stateDir)
+    rmSync(root, { recursive: true, force: true }); rmSync(archive, { force: true })
   })
 
   /** A hub older than this build can migrate is refused before the swap, not after it. */

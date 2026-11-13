@@ -123,11 +123,11 @@ export function snapshot(home: string, out: string): string {
 }
 
 /**
- * The absolute-length prefix the ledger's rows refer to, so a move into a differently-rooted home can be refused.
+ * The work directories that open tickets name, so a move into a differently-rooted home can be refused.
  *
- * Every ticket's `Execution.directory` is created under `<stateDir>/work` unless a root was configured, and the
- * recorded path is what a worker later tries to enter. Comparing that prefix with the new home catches the case a
- * ticket count cannot: a ledger that opens fine but describes directories that do not exist here.
+ * Only open tickets count. A work directory is created when work starts and cleaned up after, so a finished ticket
+ * still carries the path it used — and demanding that path exist would refuse the hub's own export, which is the most
+ * common archive a restore ever sees.
  */
 export function ledgerRoots(home: string): string[] {
   const database = join(home, DATABASE)
@@ -136,8 +136,9 @@ export function ledgerRoots(home: string): string[] {
   try {
     const roots = new Set<string>()
     for (const row of db.prepare('SELECT value FROM ticket').all() as { value: string }[]) {
-      let ticket: { execution?: { directory?: unknown } }
+      let ticket: { ended?: unknown; execution?: { directory?: unknown } }
       try { ticket = JSON.parse(row.value) as typeof ticket } catch { continue }
+      if (ticket.ended) continue
       const directory = ticket.execution?.directory
       if (typeof directory === 'string' && directory !== '') roots.add(directory)
     }

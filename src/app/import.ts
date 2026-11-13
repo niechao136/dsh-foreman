@@ -110,8 +110,12 @@ export function check(unpacked: string, bytes: number): RestoreReport {
       tickets = rows.ticket ?? '?'
       const directories = new Set<string>()
       for (const row of db.prepare('SELECT value FROM ticket').all() as { value: string }[]) {
-        let ticket: { execution?: { directory?: unknown } }
+        let ticket: { ended?: unknown; execution?: { directory?: unknown } }
         try { ticket = JSON.parse(row.value) as typeof ticket } catch { continue }
+        // Only an open ticket needs its work directory: the directory is created when work starts and cleaned up
+        // after, so a finished ticket legitimately names a path that is gone (`liveTicket` is `!ticket.ended`).
+        // Refusing a restore over a finished ticket would reject the hub's own export, the most common archive there is.
+        if (ticket.ended) continue
         const directory = ticket.execution?.directory
         if (typeof directory === 'string' && directory !== '') directories.add(directory)
       }

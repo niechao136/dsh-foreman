@@ -65,6 +65,15 @@ export interface Api {
   'GET models': { response: ModelCatalog }
   /** 设备注册表：在线状态与负载，只列项目名，不列设备自己的路径。 */
   'GET devices': { response: DevicesView }
+  /**
+   * What a hub move would carry, and whether this machine can pack one at all.
+   *
+   * The panel needs the list before the operator clicks download: an entry that is `absent` (an `attachments`
+   * directory a hub never used) is worth seeing, and a machine without `tar` must say so instead of offering a button
+   * that answers with an error.
+   */
+  'GET migration': { response: { canExport: boolean; reason?: string; canImport: boolean;
+    entries: { name: string; bytes?: number }[] } }
   /** 登记一台新设备；令牌只在这里返回一次，库里只存哈希。 */
   'POST devices': { body: { id: string; name: string; labels?: string[]; roots: { project: string; path: string }[] };
     response: { id: string; token: string } }

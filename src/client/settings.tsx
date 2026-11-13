@@ -9,6 +9,7 @@ import { LogsSettings } from './logs.tsx'
 import { ExecutionSettings } from './execution.tsx'
 import { PromptsPage } from './prompts.tsx'
 import { RoutingSettings } from './routing.tsx'
+import { MigrationPage } from './migration.tsx'
 import { usePanel } from './provider.tsx'
 import { SETTINGS_GROUPS, settingsRoute, type SettingsGroup } from './route.ts'
 import { SettingsProvider, useSettingsQuery } from './settings-kit.tsx'
@@ -78,6 +79,7 @@ export function SettingsPage({ group, query, state, deploymentForm }: {
       case 'devices': return <DevicesSettings />
       case 'prompts': return <PromptsPage />
       case 'deployment': return <DeploymentPage setup={state.setup} form={deploymentForm} />
+      case 'migration': return <MigrationPage />
       case 'logs': return <LogsSettings />
     }
   })()

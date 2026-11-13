@@ -15,6 +15,12 @@
 `storages/` 也必须搬：`workspace.json` 存的是工作区 UUID，而 `KV.runtime.masters` 按 UUID 索引。
 不搬它，主会话与工作区的归属会在新机器上**静默重置**成「无工作区」。
 
+`.credentials.yaml` 同样要搬：它存着面板的浏览器会话。漏掉它不会坏数据，但操作者到新机器上会发现面板
+要重新登录，而且没有任何地方说明为什么。
+
+`profiles/node_modules` **不要搬**：它占 `profiles` 的大部分体积，在新机器上从 `package.json` +
+`pnpm-lock.yaml` 重建即可，而且里面是给旧机器编译的二进制。
+
 ---
 
 ## 五步
@@ -34,8 +40,9 @@ node scripts/migrate.mjs plan --home "$DSH_HOME"     # 先看要搬什么、多�
 node scripts/migrate.mjs pack --home "$DSH_HOME" --out /tmp/loop.tar.gz
 ```
 
-`plan` 打印五个目录（`state/superagent`、`storages`、`sessions`、`attachments`、`profiles`）的大小；
-某个目录 `absent` 不是错误，但**要确认它本来就没有**。
+`plan` 打印六个条目（`state/superagent`、`storages`、`sessions`、`attachments`、`.credentials.yaml`、`profiles`）
+的大小；某个目录 `absent` 不是错误，但**要确认它本来就没有**。`profiles` 的数字**不含 `node_modules`**，
+与打出来的包一致。
 
 ### 3. 传
 
@@ -49,12 +56,14 @@ scp /tmp/loop.tar.gz new-host:/tmp/
 # 新机器上：用户与绝对路径必须与旧机器完全一致（/home/ubuntu/.dsh-loop 与 /home/ubuntu/src/...）
 mkdir -p /home/ubuntu/.dsh-loop
 tar -xzf /tmp/loop.tar.gz -C /home/ubuntu/.dsh-loop
+# 依赖按锁文件重建，不要从旧机器拷
+cd /home/ubuntu/.dsh-loop/profiles/loop && dsh plugin --profile loop add dsh-foreman@<版本>
 ```
 
 **两条硬约束**：
 
 - **路径同构**。库里的 `Execution.directory`、worker shim 的绝对路径都是写死的；路径不同不是改配置能修的，
-  得改数据。
+  得改数据。`verify` 现在会**读出这些目录并逐个检查**，不在本机就报错（见下一步）。
 - **设备连稳定域名**。换服务器 = 改一条 DNS 记录，设备侧配置一行不动。
 
 ### 5. 起进程并自检
@@ -76,7 +85,17 @@ rows: kv=… trigger=… ticket=137
 ```
 
 在**旧机器**上跑同样的 `verify`，两边的 `tickets` 数必须一致。`workspace.json: MISSING` 或
-`missing directory:` 任何一行都要停下来查，不要继续。
+`missing entry:` 任何一行都要停下来查，不要继续。
+
+**路径校验**：`verify` 还会读出每张工单记录的工作目录，逐个确认它在本机存在。不存在就失败并列出前几个路径——
+因为这样的库能打开、能数对票数，却一张票都跑不了。第一次在新机器上自检时如果项目还没 clone，可以：
+
+```bash
+node scripts/migrate.mjs verify --home "$DSH_HOME" --allow-missing-paths   # 只报告，不失败
+```
+
+然后 clone 项目、再跑一次不带该参数的 `verify` 确认。
+
 
 设备侧：主 loop 一起来，设备会在退避窗口内重连；面板的设备页应显示它们重新上线。**不会自动重派**
 在飞的活——那些工单会停在 `blocked`，由人决定继续还是换设备。

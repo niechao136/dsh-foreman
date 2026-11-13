@@ -2,41 +2,52 @@
 /**
  * Pack and verify a hub migration.
  *
- * Moving the hub is "stop, pack, copy, unpack at the same absolute paths, start". The one step that cannot be
- * skipped is the SQLite checkpoint: the database runs in WAL mode, so the newest writes live in a `-wal` file, and
- * copying only the `.sqlite` silently loses them. srv-01 has no `sqlite3` command, so the checkpoint goes through
- * `node:sqlite` here.
+ * Moving the hub is "stop, pack, copy, unpack at the same absolute paths, start". The steps that cannot be skipped are
+ * the SQLite checkpoint (the database runs in WAL mode, so the newest writes live in a `-wal` file and copying only
+ * the `.sqlite` silently loses them) and the path check (the rows hold absolute directories, so a ledger moved to a
+ * differently-rooted home opens and verifies while every work directory it names is missing).
  *
- * The script is plain ESM with no dependencies, because it has to run on a machine where the hub may not be
- * installed. On Windows it only checkpoints and prints what to copy: `tar` is not guaranteed there, and a silent
- * half-copy is worse than a printed list.
+ * The script is plain ESM with no dependencies beyond Node's own SQLite, because it has to run on a machine where the
+ * hub may not be installed. On Windows it only checkpoints and prints what to copy: `tar` is not guaranteed there, and
+ * a silent half-copy is worse than a printed list.
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
-/** The directories a move must carry. `storages` is not optional: it holds the workspace UUIDs the main Sessions are keyed by. */
-const DIRECTORIES = ['state/superagent', 'storages', 'sessions', 'attachments', 'profiles']
-/** The database inside the state directory. */
+/**
+ * The lists the panel's export and this script both carry.
+ *
+ * They are duplicated here on purpose. The packaged build is a bundle whose internal chunk names carry content hashes
+ * (`feishu-CE_QMi6y.js`), so a script cannot import one module out of it by path; and the script has to run on a
+ * machine where the hub is not installed at all. `src/app/migrate.ts` holds the same list for the runtime side, and
+ * `tests/migration-script.spec.ts` asserts the two agree — that is the guard against them drifting apart.
+ */
 const DATABASE = 'state/superagent/orchestrator.sqlite'
+/** Everything a move carries, relative to the DSH home. `.credentials.yaml` holds the panel's browser session. */
+const CARRIED = ['state/superagent', 'storages', 'sessions', 'attachments', '.credentials.yaml', 'profiles']
+/** Skipped inside `profiles`: rebuilt from `package.json` on the new machine, and built for the old one. */
+const PROFILE_SKIP = 'node_modules'
 
 const usage = `Usage:
   node scripts/migrate.mjs plan       --home <dir>
   node scripts/migrate.mjs checkpoint --home <dir>
   node scripts/migrate.mjs pack       --home <dir> --out <tar>
-  node scripts/migrate.mjs verify     --home <dir>
+  node scripts/migrate.mjs verify     --home <dir> [--allow-missing-paths]
 
---home is the DSH_HOME of the instance being moved (default: $DSH_HOME, else ~/.dsh).`
+--home is the DSH_HOME of the instance being moved (default: $DSH_HOME, else ~/.dsh).
+verify fails when the ledger names work directories this machine does not have; --allow-missing-paths reports them
+instead, which is what a fresh machine's first verify needs before its projects are cloned.`
 
-/** Reads `--name value` pairs; a missing value is an error rather than an empty string. */
+/** Reads `--name value` pairs, and flags; a flag's next token being absent or another flag is what makes it one. */
 function options(argv) {
   const values = new Map()
   for (let index = 0; index < argv.length; index++) {
     const name = argv[index]
     if (!name.startsWith('--')) throw new Error(`unexpected argument ${name}\n\n${usage}`)
     const value = argv[index + 1]
-    if (value === undefined || value.startsWith('--')) throw new Error(`${name} needs a value\n\n${usage}`)
+    if (value === undefined || value.startsWith('--')) { values.set(name.slice(2), true); continue }
     values.set(name.slice(2), value)
     index++
   }
@@ -46,7 +57,32 @@ function options(argv) {
 /** The DSH home to act on: `--home`, else `$DSH_HOME`, else `~/.dsh`. */
 function homeOf(values) {
   const given = values.get('home') ?? process.env.DSH_HOME ?? join(process.env.HOME ?? process.env.USERPROFILE ?? '.', '.dsh')
-  return resolve(given)
+  return resolve(String(given))
+}
+
+/**
+ * Bytes under a path, skipping every directory named `skip` at any depth.
+ *
+ * The exclusion has to be recursive because dependencies live one level deeper than the profile: `profiles/web` holds
+ * `node_modules`, not `profiles`. A shallow check looked right in the plan and then counted the whole 21 MB anyway,
+ * which is the same number the archive deliberately does not contain.
+ */
+function sizeOf(path, skip) {
+  let info
+  try { info = lstatSync(path) } catch { return 0 }
+  if (!info.isDirectory()) return info.size
+  let total = info.size
+  let entries
+  try { entries = readdirSync(path) } catch { return total }
+  for (const name of entries) if (name !== skip) total += sizeOf(join(path, name), skip)
+  return total
+}
+
+/** Bytes this home would carry, with `profiles/node_modules` excluded so the number matches what the tar holds. */
+function carriedBytes(home, name) {
+  const path = join(home, name)
+  if (!existsSync(path)) return undefined
+  return sizeOf(path, PROFILE_SKIP)
 }
 
 /** Refuses a directory that is not a DSH home, so a typo cannot checkpoint or pack the wrong database. */
@@ -70,89 +106,75 @@ function checkpoint(home) {
     const row = db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get()
     // The pragma answers { busy, log, checkpointed }: `busy` non-zero means another connection still holds the WAL.
     if (row && Number(row.busy) !== 0) throw new Error(`the database is still in use by another process (busy=${row.busy}); stop the hub first`)
-  } finally {
-    db.close()
-  }
+  } finally { db.close() }
   return database
 }
 
-/** Prints what a move carries, with each directory's size, so a partial copy is visible before it happens. */
+/** Prints what a move carries, with each entry's size, so a partial copy is visible before it happens. */
 function plan(home) {
   requireHome(home)
   const lines = [`home: ${home}`, `database: ${DATABASE}`, '']
   let total = 0
-  for (const directory of DIRECTORIES) {
-    const path = join(home, directory)
-    if (!existsSync(path)) { lines.push(`  ${directory}: absent`); continue }
-    const bytes = sizeOf(path)
+  for (const name of CARRIED) {
+    const bytes = carriedBytes(home, name)
+    if (bytes === undefined) { lines.push(`  ${name}: absent`); continue }
     total += bytes
-    lines.push(`  ${directory}: ${bytes} bytes`)
+    lines.push(`  ${name}: ${bytes} bytes`)
   }
-  lines.push('', `total: ${total} bytes`, '', 'Copy these to the same absolute paths on the new machine; the database must keep its path or the ledger\'s absolute paths break.')
+  lines.push('', `total: ${total} bytes`, '',
+    `profiles/${PROFILE_SKIP} is excluded: the new machine rebuilds it from package.json and pnpm-lock.yaml.`,
+    'Copy these to the same absolute paths on the new machine; the database must keep its path or the ledger\'s absolute paths break.')
   return lines.join('\n')
 }
 
-/** Total bytes of a file or directory tree, without following links. */
-/**
- * Total bytes under a path.
- *
- * Walks the tree itself rather than shelling out to `du`: `du -sb` is GNU-specific, and on a platform whose `du`
- * lacks `-b` (macOS/BSD) the command fails and the old fallback reported only the directory inode's size — a number
- * small enough to look like the tree was empty, on the one page an operator reads before deciding the copy is small.
- * Links are counted as their own size and not followed, so a symlink loop cannot hang the walk.
- */
-function sizeOf(path) {
-  let info
-  try { info = lstatSync(path) }
-  catch { return 0 }
-  if (!info.isDirectory()) return info.size
-  let total = info.size
-  let entries
-  try { entries = readdirSync(path) } catch { return total }
-  for (const name of entries) total += sizeOf(join(path, name))
-  return total
-}
-
-/** Packs the directories into a tar, after the checkpoint. Windows has no guaranteed `tar`, so it prints instead. */
+/** Packs the carried entries into a tar, after the checkpoint. Windows has no guaranteed `tar`, so it prints instead. */
 function pack(home, out) {
   const database = checkpoint(home)
   if (process.platform === 'win32') {
-    throw new Error(`on Windows this script only checkpoints (${database}); copy ${DIRECTORIES.join(', ')} to the new machine with the same absolute paths, then run verify there`)
+    throw new Error(`on Windows this script only checkpoints (${database}); copy ${CARRIED.join(', ')} to the new machine`
+      + ' with the same absolute paths, then run verify there')
   }
   mkdirSync(dirname(out), { recursive: true })
-  const existing = DIRECTORIES.filter(directory => existsSync(join(home, directory)))
-  const result = spawnSync('tar', ['-czf', out, '-C', home, ...existing], { stdio: 'inherit' })
+  const present = CARRIED.filter(name => existsSync(join(home, name)))
+  // `--exclude=node_modules` matches at any depth, so every profile drops its dependencies without naming them.
+  const result = spawnSync('tar', ['-czf', out, '-C', home, `--exclude=${PROFILE_SKIP}`, ...present.map(name => `./${name}`)], { stdio: 'inherit' })
   if (result.status !== 0) throw new Error(`tar failed with status ${result.status}`)
   return out
 }
 
-/**
- * Checks that what a finished move produced is usable: the database opens, the checkpoint took, and the workspace
- * copy is present. It prints counts rather than asserting a specific number, because the number depends on the
- * instance — the operator compares it with the old machine's.
- */
-function verify(home) {
+/** The absolute work directories the ledger's tickets name, so a move into a differently-rooted home can be refused. */
+function ledgerDirectories(home) {
   const database = requireHome(home)
-  // Re-checkpointing is safe and tells us whether the WAL came back after the copy.
-  const db = new DatabaseSync(database)
-  let checkpointed
+  const db = new DatabaseSync(database, { readOnly: true })
   try {
-    checkpointed = db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get()
-    const busy = checkpointed ? Number(checkpointed.busy) : 0
-    if (busy !== 0) throw new Error('the database is in use; stop the hub before verifying a move')
-  } finally {
-    db.close()
-  }
+    const roots = new Set()
+    for (const row of db.prepare('SELECT value FROM ticket').all()) {
+      let ticket
+      try { ticket = JSON.parse(String(row.value)) } catch { continue }
+      const directory = ticket?.execution?.directory
+      if (typeof directory === 'string' && directory !== '') roots.add(directory)
+    }
+    return [...roots]
+  } catch { return [] } finally { db.close() }
+}
+
+/**
+ * Checks that what a finished move produced is usable.
+ *
+ * It prints counts rather than asserting a specific number, because the number depends on the instance — the operator
+ * compares it with the old machine's. The directory check is the part a count cannot make: a ledger whose rows name
+ * directories that are not here opens, counts correctly, and then cannot run a single ticket.
+ */
+function verify(home, allowMissingPaths) {
+  checkpoint(home)
   const counts = {}
-  const counting = new DatabaseSync(database)
+  const counting = new DatabaseSync(requireHome(home), { readOnly: true })
   try {
     for (const table of ['kv', 'trigger', 'ticket']) {
       // A fresh or partially built database may lack a table; report that rather than failing the whole verify.
       try { counts[table] = String(counting.prepare(`SELECT count(*) AS n FROM ${table}`).get()?.n ?? 0) } catch { counts[table] = 'absent' }
     }
-  } finally {
-    counting.close()
-  }
+  } finally { counting.close() }
   const lines = [
     `home: ${home}`,
     'checkpoint ok',
@@ -160,8 +182,17 @@ function verify(home) {
     `tickets: ${counts.ticket}`,
     `rows: kv=${counts.kv} trigger=${counts.trigger} ticket=${counts.ticket}`,
   ]
-  for (const directory of DIRECTORIES) {
-    if (!existsSync(join(home, directory))) lines.push(`missing directory: ${directory}`)
+  for (const name of CARRIED) if (!existsSync(join(home, name))) lines.push(`missing entry: ${name}`)
+  const missing = ledgerDirectories(home).filter(directory => !existsSync(directory))
+  if (missing.length) {
+    const shown = missing.slice(0, 5).map(path => `  ${path}`).join('\n')
+    const more = missing.length > 5 ? `\n  and ${missing.length - 5} more` : ''
+    if (allowMissingPaths) lines.push('', `recorded work directories not on this machine (${missing.length}):`, `${shown}${more}`)
+    else throw new Error([
+      ...lines, '', `recorded work directories not on this machine (${missing.length}):`, `${shown}${more}`, '',
+      'Unpack this ledger at the same absolute paths, or clone the projects first; pass --allow-missing-paths to report',
+      'them without failing. A ledger whose rows name other machines\' directories cannot run its tickets.',
+    ].join('\n'))
   }
   return lines.join('\n')
 }
@@ -178,9 +209,9 @@ try {
   else if (command === 'checkpoint') console.log(`checkpoint ok: ${checkpoint(home)}`)
   else if (command === 'pack') {
     const out = values.get('out')
-    if (out === undefined) throw new Error(`pack needs --out <tar>\n\n${usage}`)
-    console.log(`packed: ${pack(home, resolve(out))}`)
-  } else if (command === 'verify') console.log(verify(home))
+    if (out === undefined || out === true) throw new Error(`pack needs --out <tar>\n\n${usage}`)
+    console.log(`packed: ${pack(home, resolve(String(out)))}`)
+  } else if (command === 'verify') console.log(verify(home, values.get('allow-missing-paths') === true))
   else throw new Error(`unknown command ${command}\n\n${usage}`)
 } catch (error) {
   console.error(`migrate: ${error instanceof Error ? error.message : String(error)}`)

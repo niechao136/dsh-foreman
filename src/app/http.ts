@@ -34,6 +34,8 @@ import { decisionList, search, threadDetail, threadList } from './views/threads.
 import { logList, type LogKind, type LogLevel } from './views/logs.ts'
 import { executorLoad, ticketDetail, ticketList } from './views/tickets.ts'
 import { devicesView } from './views/devices.ts'
+import { archiveName, canExport, homeOf, pack } from './export.ts'
+import { carried } from './migrate.ts'
 import type { DeviceInput, DeviceRecord } from '../foreman/devices.ts'
 import type { Online } from '../foreman/selector.ts'
 
@@ -357,6 +359,16 @@ function routes(runtime: HttpHost): Routes {
     'GET models': () => runtime.models(),
     /** 设备注册表：谁可以接活、谁在线、各自在跑几件。设备自己的路径不外发，只列项目名。 */
     'GET devices': () => devicesView({ devices: runtime.devices(), online: runtime.onlineDevices() }),
+    /** What a move would carry. `canExport` is false where this machine cannot pack (no `tar`), which the page shows. */
+    'GET migration': () => {
+      const home = homeOf(runtime.machine.stateDir)
+      const packable = canExport()
+      return { canExport: packable,
+        ...packable ? {} : { reason: 'This machine cannot pack an archive (no tar). Use scripts/migrate.mjs on a Linux hub.' },
+        // Restoring replaces the ledger under a running hub; it is staged as upload → check → stop → swap → restart.
+        canImport: false,
+        entries: carried(home) }
+    },
     /** 登记一台新设备。令牌只在这一次响应里出现，刷新就没了。 */
     'POST devices': async input => {
       const body = z.object({ id: z.string().trim().min(1), name: z.string().trim().min(1),
@@ -441,6 +453,37 @@ export function registerHttp(ctx: Context, runtime: HttpHost): () => void {
     error instanceof Error ? error.stack ?? error.message : String(error))
   const table = routes(runtime)
   const disposers = [
+    /**
+     * `GET migrate/export`: the hub as a downloadable archive, built while it keeps running.
+     *
+     * Registered separately from the JSON table because it is the one route that answers with bytes rather than a
+     * value: the shared handler would `JSON.stringify` the result and buffer the whole archive first. It reads only,
+     * so it takes the same GET path through the credential check as any other read.
+     */
+    ctx.webServer.register({ kind: 'prefix', path: '/orchestrator/export', handler: async (req, res) => {
+      if (!sameOrigin(req, ctx.webServer.port)) { json(res, 403, { error: 'Same-origin management request required' }); return }
+      if ((req.method ?? 'GET') !== 'GET') { json(res, 405, { error: 'Use GET' }); return }
+      if (!canExport()) {
+        json(res, 400, { error: 'This machine cannot pack an archive (no tar); use scripts/migrate.mjs on a Linux hub, or copy the entries by hand' })
+        return
+      }
+      try {
+        await runtime.ready
+        const abort = new AbortController()
+        res.on('close', () => { if (!res.writableEnded) abort.abort() })
+        // Headers first: a client watching a long export needs to know it started, and the name it will be saved as.
+        res.writeHead(200, { 'content-type': 'application/gzip', 'content-disposition': `attachment; filename="${archiveName()}"`,
+          'cache-control': 'no-store', 'x-content-type-options': 'nosniff' })
+        await pack(homeOf(runtime.machine.stateDir), runtime.machine.stateDir, chunk => res.write(chunk),
+          child => { abort.signal.addEventListener('abort', () => { child.kill('SIGTERM') }, { once: true }) })
+        res.end()
+      } catch (error) {
+        // The headers are already out, so the only honest signal left is an aborted response: a short archive that
+        // ends cleanly would look like a successful export.
+        ctx.logger.error('orchestrator export failed: %s', error instanceof Error ? error.stack ?? error.message : String(error))
+        res.destroy(error instanceof Error ? error : new Error(String(error)))
+      }
+    } }),
     ctx.webServer.register({ kind: 'prefix', path: '/orchestrator', handler: async (req, res) => {
       const url = new URL(req.url ?? '/', 'http://localhost')
       if (!url.pathname.startsWith('/orchestrator/api/')) { res.writeHead(404); res.end(); return }

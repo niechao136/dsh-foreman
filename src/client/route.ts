@@ -10,7 +10,7 @@ export const TABS = ['overview', 'eval', 'execution', 'settings'] as const
 export type Tab = typeof TABS[number]
 // 策略单独成组：接单规则、各来源的名单与准入表原本塞在「评估」里，侧栏没有任何一项指向它，
 // 于是「谁能发起工作」这件事在面板上等于不存在——没有名单，任何人都被判定为不在名单里。
-export const SETTINGS_GROUPS = ['source', 'policy', 'eval', 'execution', 'routing', 'devices', 'prompts', 'deployment', 'logs'] as const
+export const SETTINGS_GROUPS = ['source', 'policy', 'eval', 'execution', 'routing', 'devices', 'prompts', 'deployment', 'migration', 'logs'] as const
 export type SettingsGroup = typeof SETTINGS_GROUPS[number]
 export type Route = { page: 'overview'; id?: undefined; query?: undefined }
   // 评估页：筛选条件进路由，刷新与分享都还原同一屏。

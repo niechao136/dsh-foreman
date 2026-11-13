@@ -1,3 +1,40 @@
+## 0.7.2 — 2026-11-13
+
+### 修复：飞书来源报 `Feishu event consumer exited (2, ready=false): }`
+
+报错里那个孤零零的 `}` 是线索：它是 `lark-cli` 自己输出的 JSON 错误对象的尾巴，被当成「最后一行诊断」拼了进去。
+
+真正的原因在 `consume()` 的停止路径：
+
+```js
+const stop = () => { child.stdin.end(); child.kill('SIGTERM') }
+```
+
+`lark-cli event consume` 把**自己的 stdin EOF 当作「调用方不再听了」的信号**并退出。它自己就在提示里写着：
+
+```
+[event] stdin closed — shutting down. consume treats stdin EOF as exit signal
+     (wired for AI subprocess callers). ... or stop via SIGTERM instead of closing stdin.
+```
+
+即「关 stdin」与「SIGTERM」是**二选一**的停止方式，而这里同时做了两件，且 `end()` 先触发——consumer 于是按 EOF 自行退出，
+`ready` 从未置真。bus 处于被上一轮 consumer 占用的状态时，新一轮会一直卡在 connect/disconnect 循环里，日志表现为
+每十几到二十几秒连上又断开、`ready=false`。
+
+对照实验（真实 `lark-cli`，srv-02）：
+
+| 停止方式 | 输出 |
+| --- | --- |
+| `stdin.end()` + SIGTERM（旧） | 先打 `stdin closed — shutting down`，再 `exited (reason: signal)` |
+| **仅 SIGTERM（新）** | 直接 `exited (reason: signal)`，无 EOF 相关输出 |
+
+改动：
+
+- `stop()` 只发 `SIGTERM`，不再关 stdin；
+- 诊断信息从「最后一行」改为**最近 6 行**，并在检测到 EOF 退出时补一句指向真实原因
+  （「它期望用信号停止，而不是输入结束」），避免再把 JSON 尾部当诊断；
+- `ready` 状态与 45 秒超时逻辑不变。
+
 ## 0.7.1 — 2026-11-13
 
 ### 修复：群/仓库映射到项目后，消息仍落到机器级默认主子

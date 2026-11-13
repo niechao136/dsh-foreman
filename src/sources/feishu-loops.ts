@@ -80,16 +80,33 @@ async function consume(ctx: SourceContext, signal: AbortSignal): Promise<void> {
     { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1',
       LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' } })
   const stdout = createInterface({ input: child.stdout }); const stderr = createInterface({ input: child.stderr })
-  let chain = Promise.resolve(); let diagnostic = ''; let ready = false
-  const stop = (): void => { child.stdin.end(); child.kill('SIGTERM') }
+  let chain = Promise.resolve()
+  /**
+   * Everything the consumer said that could explain an exit, most recent last.
+   *
+   * A single `diagnostic` string used to hold only the last stderr line, so the one message an operator actually reads
+   * was frequently a fragment — one live report was `exited (2, ready=false): }`, the tail of the CLI's own JSON error
+   * object, with nothing about the cause. Keeping the last few lines costs nothing and usually contains it.
+   */
+  const recent: string[] = []
+  let ready = false
+  const note = (line: string): void => {
+    recent.push(line.slice(0, 1000))
+    if (recent.length > 6) recent.shift()
+  }
+  // `lark-cli event consume` treats its own stdin EOF as "the caller stopped listening" and exits. That is a rule for
+  // AI subprocess callers, and it is why stopping must be a signal, not a closed pipe: `stdin.end()` here asked the
+  // consumer to shut down on the very first stop attempt and, once a previous run left the bus in a state where the
+  // new consumer exited early, produced an endless connect/disconnect cycle with `ready=false` every time.
+  const stop = (): void => { child.kill('SIGTERM') }
   signal.addEventListener('abort', stop, { once: true })
-  const timeout = setTimeout(() => { diagnostic = 'Feishu event consumer did not become ready within 45 seconds'; stop() }, 45_000)
+  const timeout = setTimeout(() => { note('Feishu event consumer did not become ready within 45 seconds'); stop() }, 45_000)
   stderr.on('line', (line: string) => {
-    diagnostic = line.slice(0, 4000)
+    note(line)
     if (line.startsWith('[event] ready')) {
       ready = true; clearTimeout(timeout)
       ctx.report('feishu', { state: 'ready', detail: 'Listening for bot events', at: new Date().toISOString() })
-    } else if (/WARN|drop|error/.test(line)) ctx.report('feishu', { state: 'error', detail: diagnostic })
+    } else if (/WARN|drop|error/.test(line)) ctx.report('feishu', { state: 'error', detail: line.slice(0, 4000) })
   })
   stdout.on('line', (line: string) => {
     // 事件流里会混进空行、心跳或 CLI 自己的日志：空行直接忽略，非 JSON 行只当日志丢掉，
@@ -113,10 +130,24 @@ async function consume(ctx: SourceContext, signal: AbortSignal): Promise<void> {
   try {
     await new Promise<void>((resolve, reject) => {
       child.once('error', reject)
-      const exited = (code: number | null) => new Error(`Feishu event consumer exited (${code}, ready=${ready}): ${diagnostic}`)
-      child.once('close', (code) => signal.aborted ? resolve() : reject(exited(code)))
+      child.once('close', (code) => signal.aborted ? resolve() : reject(exited(code, ready, recent)))
     })
   } finally { clearTimeout(timeout); signal.removeEventListener('abort', stop); stdout.close(); stderr.close(); await chain }
+}
+
+/**
+ * The error for a consumer that stopped on its own.
+ *
+ * The last stderr lines are included because the exit code alone never says why: a bus that another consumer still
+ * holds, a revoked app, a missing scope and a closed stdin all end the same way. The stdin hint the CLI prints is
+ * called out separately, because it names a bug in this file rather than a problem with the bot.
+ */
+const exited = (code: number | null, ready: boolean, recent: readonly string[]): Error => {
+  const detail = recent.join(' | ')
+  const stdin = recent.some(line => /stdin closed|stdin EOF/i.test(line))
+    ? ' The consumer exited because its stdin closed; it expects a signal to stop, not an end of input.'
+    : ''
+  return new Error(`Feishu event consumer exited (${code}, ready=${ready}): ${detail || 'no output'}${stdin}`)
 }
 
 /** Refreshes the map of joined chats (`chat_id -> name`); throws on failure so the previously stored list remains intact. */

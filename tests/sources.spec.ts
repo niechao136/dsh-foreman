@@ -1194,6 +1194,59 @@ describe('feishu event consumer', () => {
     await vi.waitFor(() => expect(health.feishu).toMatchObject({ state: 'ready' }), until)
     controller.abort(); await running; store.close()
   }, 20_000)
+
+  /**
+   * Stopping must be a signal, not a closed stdin.
+   *
+   * `lark-cli event consume` reads its own stdin EOF as "the caller stopped listening" and exits, which its own output
+   * says out loud: "consume treats stdin EOF as exit signal ... or stop via SIGTERM instead of closing stdin". The
+   * consumer was stopped with `stdin.end()` AND a SIGTERM, so the pipe ended first and the CLI shut down on its own
+   * terms; a live installation then sat in a connect/disconnect cycle reporting `ready=false`. This fake CLI exits the
+   * moment its stdin reaches EOF, so a run that keeps listening proves the pipe was left open.
+   */
+  it('leaves the consumer\'s stdin open and stops it with a signal', async () => {
+    const path = join(dir, 'lark-bot')
+    writeFileSync(path, `#!/bin/sh
+  [ "$1" = event ] || { echo '{"ok":true,"data":{}}'; exit 0; }
+  n=$(cat '${dir}/runs' 2>/dev/null || echo 0); n=$((n + 1)); echo $n > '${dir}/runs'; echo $$ > '${dir}/pid'
+  # Any read returning EOF means the caller closed stdin: behave as the real CLI and exit.
+  if read line; then :; else echo '[event] stdin closed — shutting down' >&2; exit 2; fi
+  echo '[event] ready' >&2
+  # A real run stays up; a second read that blocks proves the pipe is still open.
+  while read more; do :; done
+  echo '[event] stdin closed — shutting down' >&2; exit 2
+  `, { mode: 0o755 })
+    const { ctx, health, store } = consumerSource(path)
+    running = runFeishu(ctx, controller.signal)
+    await vi.waitFor(() => expect(health.feishu).toMatchObject({ state: 'ready', detail: 'Listening for bot events' }), until)
+    // It is still listening: nothing closed the pipe behind its back.
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(health.feishu).toMatchObject({ state: 'ready' })
+    const pid = Number(readFileSync(join(dir, 'pid'), 'utf8'))
+    controller.abort(); await running; store.close()
+    await vi.waitFor(() => expect(alive(pid)).toBe(false), until)
+  }, 20_000)
+
+  /** The failure text names the cause, and calls out a closed stdin, instead of showing a fragment of the CLI's JSON. */
+  it('reports why a consumer exited, keeping the last lines it printed', async () => {
+    const path = join(dir, 'lark-bot')
+    writeFileSync(path, `#!/bin/sh
+  [ "$1" = event ] || { echo '{"ok":true,"data":{}}'; exit 0; }
+  echo '[event] remote connection check failed: bus is held by another consumer' >&2
+  echo '[event] stdin closed — shutting down' >&2
+  echo '}' >&2
+  exit 2
+  `, { mode: 0o755 })
+    const { ctx, health, store } = consumerSource(path)
+    running = runFeishu(ctx, controller.signal)
+    await vi.waitFor(() => expect(health.feishu).toMatchObject({ state: 'error',
+      detail: expect.stringContaining('exited (2, ready=false)') }), until)
+    const detail = String(health.feishu?.detail)
+    // The cause and the offending behaviour are both present, not just the trailing brace of a JSON object.
+    expect(detail).toContain('bus is held by another consumer')
+    expect(detail).toContain('stdin closed')
+    controller.abort(); await running; store.close()
+  }, 20_000)
 })
 
 describe('observing the GitHub repository', () => {

@@ -80,4 +80,25 @@ describe('the device listener', () => {
     await expect(server.hub.send('laptop', { v: FOREMAN_PROTOCOL_VERSION, type: 'heartbeat', frameId: 'hb', deviceId: 'laptop', running: 0 }))
       .resolves.toBeUndefined()
   })
+
+  /**
+   * A close must finish even while a peer is still connected.
+   *
+   * This is the regression that wedged a live installation: `server.close()` waits for every existing connection, and
+   * a device socket that never completes its handshake therefore kept the callback from ever firing. The plugin's
+   * disposer never resolved, DSH went on restarting the fiber, and the panel showed dsh-foreman as "unloading" with
+   * every plugin depending on it "waiting for dependency" — for the rest of the process's life.
+   */
+  it('closes while a device is connected, instead of waiting for that socket to end', async () => {
+    const { devices } = open()
+    const { token } = devices.add({ id: 'laptop', name: 'L', roots: [{ project: 'shop', path: '/w/shop' }] })
+    const server = await serve({ port: 0, devices, onFrame: () => {} })
+    const socket = new WebSocket(`ws://127.0.0.1:${server.port}`)
+    // A socket that connects but never says hello: attached as pending, never admitted, and never closed by the hub.
+    await new Promise<void>((resolve, reject) => { socket.on('open', () => resolve()); socket.on('error', reject) })
+    const started = Date.now()
+    await server.close()
+    expect(Date.now() - started).toBeLessThan(5_000)
+    socket.close()
+  })
 })

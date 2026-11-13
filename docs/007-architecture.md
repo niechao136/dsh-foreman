@@ -315,6 +315,8 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/foreman/ws.ts` | The only file that imports `ws`: a loopback `WebSocketServer` whose sockets become `Channel`s, refusing a non-loopback host because TLS is terminated in a tunnel |
 | `src/foreman/reports.ts` | `applyReport`, `onDisconnect`, `onTimeout` and `alignHello`: a report passes through or is dropped late, a disconnect only marks a time, a timeout reports `blocked`, and a reconnect is reconciled without ever reassigning |
 | `src/foreman/routing.ts` | `routeIndexOf` and `chatRouteOf`: the chat → project table as a map keyed by settings revision, so `masterOf` can stay synchronous |
+| `src/foreman/path.ts` | `pathKey`, `samePath` and `canonicalPath`: how a hand-typed routing directory is compared with the registry's canonical path — separators and `.`/`..` collapsed, case folded only where the filesystem ignores it, so a typo is reported instead of silently rerouted |
+| `src/foreman/roster.ts` | `deviceRoster` and `rosterLines`: the machines a routing decision may name, with ids, display names, projects, labels and online state but never a device path, as the candidate card and the eval payload carry them |
 | `src/foreman/render.ts` | `renderForDevice`: the task text a device receives, finished on the hub so it carries no resource pointer and no hub path, with the attachments as bytes |
 | `src/app/views/devices.ts` | `devicesView`: the panel's device list — online, revoked, load, last seen, and project names but never a device's own path |
 | `src/client/devices.tsx` | The Devices settings group: registering a machine (its one-time token, shown with the values the machine needs), the device list, revoking one, and rotating a token |
@@ -436,7 +438,9 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/foreman-prepare.spec.ts` | The accept seam: the chosen target written before the Assignment exists, the project name read either way along a path, and no target when no device can take the work |
 | `tests/foreman-executor.spec.ts` | Local targets passed through unchanged, remote ones as one `assign` frame, `blocked` when a device is unreachable, and the same assignment never sent twice |
 | `tests/foreman-hub.spec.ts` | The hub: the hello handshake, a refused token, revocation after connecting, a version mismatch, dedupe, and sending to a device that is not connected |
-| `tests/foreman-ws.spec.ts` | The real listener on an ephemeral port: admitting a hello, telling a peer that opens with something else, refusing a non-loopback host, and sending on the socket |
+| `tests/foreman-ws.spec.ts` | The real listener on an ephemeral port: admitting a hello, telling a peer that opens with something else, refusing a non-loopback host, sending on the socket, and closing while a device is still connected |
+| `tests/foreman-path.spec.ts` | Comparing a hand-typed routing directory with the registry's path: redundant separators and `.`/`..`, case folded only where the filesystem ignores it, a typo still a different project, and a path that does not exist |
+| `tests/foreman-roster.spec.ts` | The roster a routing decision sees: every registered device with its state and projects, no device path, and a device that declares no project |
 | `tests/foreman-reports.spec.ts` | Reports passed through, dropped late or as `dropped`, a disconnect that touches no Engine state, a timeout that reports `blocked`, and hello alignment |
 | `tests/foreman-render.spec.ts` | The task text a device reads: the request's own words, attachments as bytes under the frame budget, and never a hub path or an unreadable attachment id |
 | `tests/migration-script.spec.ts` | `scripts/migrate.mjs`: the WAL checkpoint that makes a plain file copy complete, the directories a move must carry, and a verify that names what is missing |

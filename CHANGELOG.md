@@ -1,3 +1,51 @@
+## 0.7.1 — 2026-11-13
+
+### 修复：群/仓库映射到项目后，消息仍落到机器级默认主子
+
+面板「项目对应」写的是 `/dsh-context-fold`，hub 上的工作区是 `/root/dsh-context-fold`。`masterIdForPath`
+用**字符串全等**比较两者，于是每一行都查不到，`masterOf` 一路 fallback 到默认主子——群里的消息由机器级
+router 处理，而且**没有任何地方留下痕迹**：操作者在面板上看不出是路由表打错了。
+
+- 路径比较改走 `samePath()`（`src/foreman/path.ts`）：折叠多余的 `/` 与 `.`/`..`、去掉末尾分隔符，
+  并且在**大小写不敏感的文件系统上才**折叠大小写（Linux 上 `Foo` 与 `foo` 是两个项目，合并会把活派进
+  错的 checkout）；
+- 新路由健康项 `routing`：映射指向打不开的目录，或目录里没有工作区时，在概览上报出具体路径，
+  而不是静默退回默认主子；
+- `ensureChatWorkspaces` 现在也遍历**仓库**路由（以前只看群）。
+
+### 修复：主会话选不出设备，因为评估根本没有设备清单
+
+线上三次 ignore 的理由是「no registered device named "dorm computer" exists」，而设备注册表里 `pc` /
+显示名「宿舍电脑」当时就在册。真正的原因是**设备清单从来没进过任何 prompt**：`admission.md` 让模型
+「按设备 id 或名字填写 device」，但注册表内容一处都没有喂给它。
+
+- 候选卡片与 `orchestrator_eval` 的 payload 都带上 `devices`：id、显示名、标签、能接的项目名、在线状态、
+  当前负载。**不含设备路径**（面板要过隧道，路径是那台机器的磁盘地图）；
+- `selectDevice` 的设备名匹配改为 `namesDevice()`：整串先比，再按 token 比，NFKC 归一、大小写不敏感、
+  去掉 `()（）/·,，、|`。线上那张票写的是 `"宿舍电脑 pc"`（名字和 id 拼在一起），严格相等两个都不命中，
+  于是票被当成「设备离线」blocked。仍然只匹配 id 与显示名，不做前缀匹配。
+
+### 修复：改 GitHub 令牌后插件卡在「卸载中」
+
+只换令牌的保存会触发一次进程内 restart。`serve().close()` 只是 `await server.close()`，而 node 的
+`server.close()` 语义是「停止 accept，然后**等所有现有连接结束**」；一条握手没完成的设备连接就能让它永不
+返回。disposer 不返回，fiber 永远停在 unloading，依赖它的 github-watch/feishu-watch/local-watch 全部
+「等待依赖」。
+
+- `serve().close()` 先 `terminate()` 掉 `server.clients` 里剩下的连接，再给 `server.close()` 一个 5 秒上限；
+- `Runtime.shutdown()` 整体加 30 秒上限：超时就记一条 warn 并继续关库、放锁，宁可放弃一次优雅关闭，
+  也不能让插件永久停在卸载中；
+- 回归测试 `closes while a device is connected`：移除修复会超时失败（已实测）。
+
+### 优化：「项目与仓库」的仓库勾选改为紧凑选择器
+
+原来每个项目行下面平铺整张复选框列表，仓库一多，每个项目行都和整个 GitHub 来源一样高，
+操作者真正要改的那一栏「项目目录」反而最小。
+
+- 行内只留一行：已选仓库的 chip（可单个移除）+「选择仓库（已选 N）」按钮；
+- 点开才是可搜索的列表，带「全选当前结果 / 清空当前结果」；
+- 已从 GitHub 来源消失的仓库仍然列出并标注，编辑时不会静默丢掉。
+
 ## 0.7.0 — 2026-11-12
 
 ### 新增：查证类需求也能接单（`answer` 规则）

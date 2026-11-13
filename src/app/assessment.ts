@@ -8,6 +8,7 @@ import { checkedImText } from '../infra/text.ts'
 import type { Commands } from '../infra/commands.ts'
 import type { Deployment } from '../deployment.ts'
 import { admissionContext } from '../sources/admission-context.ts'
+import type { RosterEntry } from '../foreman/roster.ts'
 import { readRepositoryPath } from '../sources/github-read.ts'
 import type { TriggerContext } from '../sources/kind.ts'
 import { relatedTickets } from './cards.ts'
@@ -67,6 +68,14 @@ export interface AssessorHost {
    */
   deliver(requestId: string, text: string, trigger?: Trigger): Promise<void>
   candidateCard(candidate: Candidate): Promise<Record<string, unknown>>
+  /**
+   * The machines a dispatch could name, for the `orchestrator_eval` payload.
+   *
+   * The candidate card carries the same roster; this repeats it in the eval payload because an assessment is a model
+   * call of its own and may run without having re-read the card, and because a device can connect between the two.
+   * Absent when this installation has no device hub.
+   */
+  devices?(): RosterEntry[]
 }
 
 /** Schema for bounded context or repository read requests during an active evaluation (`orchestrator_eval_read`). */
@@ -212,6 +221,10 @@ export class MasterAssessor implements Assessor {
     })() : { error: error ?? 'Call orchestrator_eval to load initial context', complete: false }
     const settings = this.host.settings()
     const others = candidate.triggers.filter(item => item.id !== trigger.id)
+    // The roster: an assessment asked to name a machine has to be shown the machines. Without it the model writes a
+    // description of a desk ("dorm computer") instead of the id the selector matches, and the ticket is blocked as if
+    // that machine did not exist — which is exactly what happened before this was here.
+    const roster = this.host.devices?.() ?? []
     return { trigger_id: trigger.id, strength: candidate.strength, mode: settings.eval.mode,
       source: { kind: trigger.source, actor: trigger.actor.id, thread: threadKey(trigger.threads[0]!), ...(trigger.url
         ? { url: trigger.url } : {}) },
@@ -222,6 +235,7 @@ export class MasterAssessor implements Assessor {
       }) } : {},
       // The rules are in the main Session's Policy section, which names the version the candidate's Eval was built from.
       ...relatedTickets(candidate.tickets), policy_version: candidate.policyVersion,
+      ...(roster.length ? { devices: roster } : {}),
       thread }
   }
   /**

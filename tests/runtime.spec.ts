@@ -118,6 +118,20 @@ const relays = (sessionId: string) => deliveries.mock.calls.map(([call]) => call
 })
 const MEMBER = 'ou_alice'
 const CHAT = 'oc_team'
+/**
+ * The main Session a message in `chatId` is delivered to.
+ *
+ * A Feishu chat's candidate card goes to the routed project's main Session — that delivery is the observable form of
+ * the `masterOf` lookup, which is synchronous and private because the Engine calls it inside its emit path.
+ */
+async function routedMaster(chatId: string): Promise<string> {
+  deliveries.mockClear()
+  const trigger = feishuTrigger({ message_id: `om_route_${Date.now()}`, chat_id: chatId, chat_type: 'group', sender_id: MEMBER,
+    sender_type: 'user', content: '排查一下这个项目的状态', create_time: String(Date.now()),
+    mentions: [{ id: 'ou_bot' }] }, 'ou_bot', 'cli_bot')!
+  await receive(trigger)
+  return deliveries.mock.calls[0]![0].sessionId
+}
 function feishu(id: string, text: string, overrides: Record<string, unknown> = {}): Trigger {
   return feishuTrigger({ message_id: `om_${id}`, chat_id: CHAT, chat_type: 'group', sender_id: MEMBER, sender_type: 'user', content: text, create_time: String(Date.parse('2026-09-09T00:00:00Z') + Number(id.replace(/\D/g, '') || 0) * 1000), mentions: [{ id: 'ou_bot' }], ...overrides }, 'ou_bot', 'cli_bot')!
 }
@@ -1881,4 +1895,37 @@ it('rebuilds a main session deleted outside instead of pinning the dead one', as
   expect(ensure).toHaveBeenCalledTimes(1)
   prompt.mockRestore()
   ensure.mockRestore()
+})
+
+/**
+ * A mapping whose directory differs only in how it is spelled still reaches its own project.
+ *
+ * The registry stores the canonical path, so a row typed as `/srv/widgets/` — a trailing separator, a `..`, the case
+ * a case-insensitive filesystem reports — is the same project. String equality made every one of those look like an
+ * unrelated directory, and the message silently landed on the default main Session.
+ */
+it('finds the routed project when the mapping spells the same directory differently', async () => {
+  const base = join(directory, 'widgets')
+  // The fake registry resolves a path to itself, so the workspace's own path is the canonical one.
+  const masterId = await runtime.masterFor(base)
+  expect(runtime.workspaceOf(masterId)).toBe(base)
+  await runtime.settings.save('routing', { chats: [{ chatId: CHAT, workspace: `${base}/` }], repositories: [] },
+    runtime.store.blockRevision('routing'), 'panel')
+  // A trailing separator is not a different project: the message must reach the project's own main Session.
+  expect(await routedMaster(CHAT)).toBe(masterId)
+})
+
+/**
+ * A mapping pointing at a directory this hub cannot open is reported, not silently rerouted.
+ *
+ * Before this, a typo in the routing table was invisible: the message was answered by the machine-level router and
+ * nothing said why. The operator's fix is a row on the Routing page, so the panel has to be the place that shows it.
+ */
+it('reports a routing row whose project directory does not exist instead of failing silently', async () => {
+  const missing = join(directory, 'no-such-project')
+  await runtime.settings.save('routing', { chats: [{ chatId: CHAT, workspace: missing }], repositories: [] },
+    runtime.store.blockRevision('routing'), 'panel')
+  // Still answered — by the default main Session, because that is the only Session that exists.
+  expect(await routedMaster(CHAT)).toBe(runtime.masterId)
+  expect(runtime.health.routing).toMatchObject({ state: 'error', detail: expect.stringContaining('no-such-project') })
 })

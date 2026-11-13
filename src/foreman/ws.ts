@@ -89,7 +89,26 @@ export async function serve(input: ServeInput): Promise<Served> {
   const port = (server.address() as AddressInfo).port
   return { hub, port, close: async () => {
     hub.closeAll()
-    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+    // `server.close()` means "stop accepting, then wait for every existing connection to end", so a peer that never
+    // finishes its handshake — or one whose frame was rejected mid-write — keeps the callback from ever firing. That
+    // is what left a real installation wedged: the plugin stayed "unloading" for the rest of the process's life and
+    // every plugin depending on it stayed "waiting for dependency". Terminate what closeAll does not own first.
+    for (const socket of server.clients) socket.terminate()
+    await new Promise<void>((resolve, reject) => {
+      let done = false
+      const finish = (error?: Error): void => {
+        if (done) return
+        done = true
+        clearTimeout(timer)
+        if (error) reject(error)
+        else resolve()
+      }
+      // A close that cannot finish is not worth blocking shutdown on: the process may be restarting, and a listener
+      // nobody can reach any more is a smaller problem than a plugin that never unloads.
+      const timer = setTimeout(() => finish(), 5_000)
+      timer.unref?.()
+      server.close(error => error ? finish(error) : finish())
+    })
   } }
 }
 

@@ -43,9 +43,12 @@ import { ForemanExecutor, inputsOf } from '../foreman/executor.ts'
 import { Hub } from '../foreman/hub.ts'
 import { serve, type Served } from '../foreman/ws.ts'
 import { prepareTicketWithForeman, reselectForRetry, type PrepareInput } from '../foreman/prepare.ts'
+import { deviceRoster } from '../foreman/roster.ts'
 import { routeIndexOf, chatRouteOf, repositoryRouteOf, type ChatIndex } from '../foreman/routing.ts'
+import { canonicalPath, samePath } from '../foreman/path.ts'
 import { FOREMAN_PROTOCOL_VERSION, supports, type PartFrame } from '../foreman/protocol.ts'
 import { alignHello, onTimeout, applyReport, type AssignmentWhere } from '../foreman/reports.ts'
+import { until } from '../executor/background.ts'
 import type { Frame, ReportFrame } from '../foreman/protocol.ts'
 import { attachmentPath } from '../sources/dsh.ts'
 
@@ -81,6 +84,14 @@ import { executorTools, type ExecutorToolsHost } from './tools/executor.ts'
 // Source plugins interact with dsh-foreman exclusively through the `SourceHost` service interface.
 declare module '@deepseek-ai/cordis' { interface Context { orchestrator: SourceHost & OrchestratorPorts } }
 const now = (): string => new Date().toISOString()
+/**
+ * How long a stop may take before the rest is abandoned and the database is closed anyway.
+ *
+ * Longer than the per-step limits inside (`SHUTDOWN_STOP_MS` of the executor is 10s) but far shorter than forever,
+ * which is what an unanswered device socket or agent turn used to cost: a plugin stuck "unloading" until the process
+ * itself was killed.
+ */
+const SHUTDOWN_STOP_MS = 30_000
 
 /**
  * Composition root of dsh-foreman that connects `Store`, `Setup`, `Engine`, `SourceRegistry`, `Effects`, `Outbox`, `Passes`, `Sessions`, `Settings`, `Prompts`, `DshExecutor`, and `MasterAssessor`.
@@ -115,6 +126,8 @@ export class Runtime extends Service implements SourceHost {
   readonly ready: Promise<void>
   private readonly board = new HealthBoard()
   private readonly runtimeHealth = this.board.claim('runtime', { state: 'starting', detail: '' })
+  /** Reported when a mapped chat or repository names a workspace this hub cannot open; the message then falls back to the default main Session. */
+  private readonly routeHealth = this.board.claim('routing', { state: 'ready', detail: 'Every mapped project directory resolves' })
   readonly masterId: string
   /** 每个工作区的主子会话；默认那一条是 masterId，其余按需创建。 */
   private readonly masters = new Map<string, string>()
@@ -161,7 +174,10 @@ export class Runtime extends Service implements SourceHost {
           .catch(() => { /* sync() records its failure in health. */ })
         return () => {}
       })
-      const links: LinkHost = { store, links: this.sourceLinks, commands, sources, lifetime: this.lifetime }
+      const links: LinkHost = { store, links: this.sourceLinks, commands, sources, lifetime: this.lifetime,
+        // The candidate card carries the roster so a routing decision can name a machine by the id the selector
+        // matches. `hub` may not exist yet at this point (it starts later in initialize), so read it lazily.
+        devices: () => deviceRoster(this.devices.list(), this.hub?.snapshot() ?? []) }
       const link = (trigger: Trigger, signal?: AbortSignal) => sourceLink(links, trigger, signal)
       const environment = (ticket: Ticket) => this.ticketEnvironment(ticket)
       const resources: ResourceHost = { store, pages: new TextCache(4_000_000), prompts, commands, masterId, context: ctx,
@@ -181,7 +197,9 @@ export class Runtime extends Service implements SourceHost {
         repliedTo: trigger => repliedTo({ store, sources }, trigger) })
       this.assessor = new MasterAssessor({ get engine() { return runtime.engine }, commands, get deployment() { return setup.deployment }, effects,
         settings: () => store.settings(), paused: () => this.paused(), threadContext: trigger => sources.threadContext(trigger),
-        deliver: (id, text, trigger) => sessions.prompt(this.masterOf(trigger), id, text, 'steer'), candidateCard: candidate => candidateCard(links, candidate) })
+        deliver: (id, text, trigger) => sessions.prompt(this.masterOf(trigger), id, text, 'steer'), candidateCard: candidate => candidateCard(links, candidate),
+        // The eval payload repeats the roster the candidate card carries: an assessment is a separate model call.
+        devices: () => deviceRoster(this.devices.list(), this.hub?.snapshot() ?? []) })
       const outbox = this.outbox = new Outbox({ store, effects, sources, commands, paused: () => this.paused() })
       const { assessor, executor } = this
       this.devices = new Devices(store)
@@ -343,8 +361,22 @@ export class Runtime extends Service implements SourceHost {
     if (route !== undefined) {
       const masterId = this.masterIdForPath(route.workspace)
       if (masterId !== undefined) return masterId
+      // A mapped chat whose workspace could not be resolved used to fall through to the default main Session with no
+      // trace anywhere: the operator saw their project's messages answered by the machine-level router and had no way
+      // to learn that a typo in the routing table caused it. Say it where the panel can show it.
+      this.reportRoute(route.workspace, `no main Session is registered for the mapped workspace ${route.workspace}`)
     }
     return this.masterId
+  }
+
+  /**
+   * Record that work was routed to a workspace the hub cannot open, on the health board the overview reads.
+   *
+   * A warning rather than an error: the message still reached a main Session, and one misconfigured row must not read
+   * as the whole installation being broken. The entry names the path, because the fix is to correct that row.
+   */
+  private reportRoute(workspace: string, detail: string): void {
+    this.routeHealth.set({ state: 'error', detail: `${detail}; fix the routing table (project directory) or create that workspace`, at: now() })
   }
 
   /**
@@ -373,24 +405,62 @@ export class Runtime extends Service implements SourceHost {
    * that chat's messages keep the default main Session rather than being lost.
    */
   private async ensureChatWorkspaces(current: ChatIndex): Promise<void> {
-    for (const route of current.index.values()) {
+    // Every mapped path, chats and repositories alike: a GitHub Trigger is routed through the same table, so a
+    // repository row pointing at a project with no main Session has exactly the same silent-fallback problem.
+    const paths = [...new Set([
+      ...[...current.index.values()].map(route => route.workspace),
+      ...[...current.repositories.values()].map(route => route.workspace),
+    ])]
+    const unresolved: string[] = []
+    for (const path of paths) {
       try {
         // The registry shape varies across DSH versions; `workspaceRecordOf` already degrades to undefined.
-        const workspace = await this.workspaceRecordOf(route.workspace)
-        if (workspace === undefined) continue
+        const workspace = await this.workspaceRecordOf(path)
+        if (workspace === undefined) { unresolved.push(path); continue }
         await this.masterFor(workspace.id)
       } catch (error) {
-        this.ctx.logger.warn('dsh-foreman could not open a main Session for chat %s in %s: %s', route.chatId, route.workspace, String(error))
+        unresolved.push(path)
+        this.ctx.logger.warn('dsh-foreman could not open a main Session for %s: %s', path, String(error))
       }
+    }
+    // One health row naming the offending paths: the operator's fix is in the routing table, and the panel is where
+    // they will look. Naming them beats a count, because the row they must edit is the one holding that string.
+    if (unresolved.length) {
+      const listed = unresolved.slice(0, 3).join(', ')
+      const more = unresolved.length > 3 ? ` and ${unresolved.length - 3} more` : ''
+      this.routeHealth.set({ state: 'error', at: now(),
+        detail: `The routing table names ${unresolved.length} project director${unresolved.length === 1 ? 'y' : 'ies'} that this hub has no workspace for: ${listed}${more}. Their messages fall back to the default main Session. Fix the path in the routing table, or open that directory as a workspace first.` })
+    } else {
+      this.routeHealth.set({ state: 'ready', detail: 'Every mapped project directory resolves to a workspace', at: now() })
     }
   }
 
-  /** The main Session of the workspace at a path, if one has been created; undefined before that. */
+  /**
+   * The main Session of the workspace at a path, if one has been created; undefined before that.
+   *
+   * Compared through `samePath`, not string equality: a routing row is typed by hand, and a trailing separator, a
+   * `..`, or the case a case-insensitive filesystem reports are the same directory. String equality made every one
+   * of those look like an unrelated project, which silently dropped the message back onto the default main Session.
+   */
   private masterIdForPath(path: string): string | undefined {
     for (const [workspaceId, id] of this.masters) {
-      if (this.ctx.workspaceRegistry.get(workspaceId as never)?.path === path) return String(id)
+      const known = this.ctx.workspaceRegistry.get(workspaceId as never)?.path
+      if (known !== undefined && samePath(known, path)) return String(id)
     }
     return undefined
+  }
+
+  /**
+   * Whether a workspace at `path` exists, without creating one.
+   *
+   * `resolveByPath` only matches an already-registered workspace, so this never registers a workspace for a typo:
+   * a routing row pointing at a directory that does not exist must be reported, not silently become a new project.
+   */
+  private async workspaceExists(path: string): Promise<boolean> {
+    const canonical = await canonicalPath(path)
+    if (canonical === undefined) return false
+    const record = await this.workspaceRecordOf(canonical)
+    return record !== undefined || this.masterIdForPath(canonical) !== undefined
   }
   isMaster(sessionId: string): boolean {
     if (String(sessionId) === String(this.masterId)) return true
@@ -796,25 +866,42 @@ export class Runtime extends Service implements SourceHost {
         if (before !== after) runtime.hub?.detach(id)
       } }
   }
+  /**
+   * The steps of a stop that wait on something outside this process, split out so `shutdown` can bound them.
+   *
+   * Kept as one method so the ordered teardown still reads top to bottom: agents, executor, sessions, device listener,
+   * HTTP routes, persistence.
+   */
+  private async stopInner(passes: Promise<unknown>): Promise<void> {
+    this.assessor.stop()
+    const ids = [this.masterId, ...this.store.tickets.list().map(ticket => workerSessionId(ticket.id))]
+    const agents = ids.map(id => this.ctx.agents.get(id as SessionId)).filter((agent): agent is Agent => agent !== undefined)
+    for (const agent of agents) agent.cancel({ kind: 'user' }, { keepInbox: true })
+    await Promise.allSettled([passes, this.effects.drain(), ...agents.map(agent => agent.whenIdle())])
+    // The workers' jobs and subagents stop too: their ends would start worker turns without the tool limits released below.
+    await this.executor.shutdown()
+    this.executor.dispose()
+    this.sessions.dispose()
+    // The device listener goes before the database: a frame arriving after close would try to write to a closed store.
+    if (this.hubTimer !== undefined) clearInterval(this.hubTimer)
+    await this.hubServer?.close().catch(error => this.ctx.logger.warn('dsh-foreman could not close its device hub: %s', String(error)))
+    for (const dispose of this.disposers.reverse()) dispose()
+    await this.ctx.sessionPersistence.flush()
+  }
   /** Idempotent stop; concurrent or repeated calls share the same shutdown promise. */
   stop(): Promise<void> { return this.stopping ??= this.shutdown() }
   private async shutdown(): Promise<void> {
     this.closingFlag = true; const passes = this.passes.stop(); this.stopped.abort()
     try {
-      this.assessor.stop()
-      const ids = [this.masterId, ...this.store.tickets.list().map(ticket => workerSessionId(ticket.id))]
-      const agents = ids.map(id => this.ctx.agents.get(id as SessionId)).filter((agent): agent is Agent => agent !== undefined)
-      for (const agent of agents) agent.cancel({ kind: 'user' }, { keepInbox: true })
-      await Promise.allSettled([passes, this.effects.drain(), ...agents.map(agent => agent.whenIdle())])
-      // The workers' jobs and subagents stop too: their ends would start worker turns without the tool limits released below.
-      await this.executor.shutdown()
-      this.executor.dispose()
-      this.sessions.dispose()
-      // The device listener goes before the database: a frame arriving after close would try to write to a closed store.
-      if (this.hubTimer !== undefined) clearInterval(this.hubTimer)
-      await this.hubServer?.close().catch(error => this.ctx.logger.warn('dsh-foreman could not close its device hub: %s', String(error)))
-      for (const dispose of this.disposers.reverse()) dispose()
-      await this.ctx.sessionPersistence.flush()
+      // Every step below waits on something outside this process: an agent's turn, a subprocess, a device socket. One
+      // of them never answering is a real failure mode, and the cost of not bounding it is severe — the disposer never
+      // resolves, the fiber restarts forever, and the panel shows this plugin as "unloading" with every plugin that
+      // depends on it "waiting for dependency". A step that overruns is logged and skipped instead; the `finally`
+      // below still closes the database and releases the lock, so the next start is clean either way.
+      const stopped = await until(this.stopInner(passes), undefined, SHUTDOWN_STOP_MS)
+      if (stopped === false) {
+        this.ctx.logger.warn('dsh-foreman did not finish stopping within %d ms; closing its database anyway so a restart can proceed', SHUTDOWN_STOP_MS)
+      }
     } finally {
       // Close the database before releasing the directory lock so another process cannot open the database mid-write; a compromised lock may already be released.
       this.setup.restore()

@@ -92,11 +92,54 @@ it('groups repositories that share a directory into one project row', async () =
     repositories: [{ repository: 'acme/widgets', workspace: '/srv/widgets' },
       { repository: 'acme/widgets-node', workspace: '/srv/widgets' }] }
   await render()
-  // One project row listing both repositories as checked boxes, not two rows with the same directory.
-  const boxes = Array.from(document.querySelectorAll('.dt-checklist input')) as HTMLInputElement[]
-  expect(boxes.length).toBe(2)
-  expect(boxes.every(input => input.checked)).toBe(true)
-  expect(document.querySelectorAll('.dt-checklist').length).toBe(1)
+  // One project row, whose summary names both repositories; the checkbox list is not rendered until it is opened.
+  expect(document.querySelectorAll('.dt-picker').length).toBe(1)
+  const chips = Array.from(document.querySelectorAll('.dt-picker-chip-name')).map(chip => chip.textContent)
+  expect(chips).toEqual(['acme/widgets', 'acme/widgets-node'])
+  expect(document.querySelectorAll('.dt-checklist').length).toBe(0)
+})
+
+/**
+ * The repository list is a picker, not a wall of checkboxes.
+ *
+ * With twenty repositories the old flat checklist made every project row as tall as the whole GitHub Source, and the
+ * one field an operator came to edit — the directory — was the smallest thing on screen. The chips stay one line high
+ * and the searchable list only exists while it is open.
+ */
+it('keeps a project row compact until the repository list is opened, then offers a search', async () => {
+  server.settings.routing = { chats: [], repositories: [
+    { repository: 'acme/widgets', workspace: '/srv/widgets' }, { repository: 'acme/widgets-node', workspace: '/srv/widgets' },
+    { repository: 'acme/other', workspace: '/srv/widgets' }] }
+  await render()
+  expect(document.querySelectorAll('.dt-picker-panel').length).toBe(0)
+  const open = find(zh.routingPickOpen.replace('{count}', '3'), 'button')
+  await act(async () => { open.click() })
+  await settle()
+  const panel = document.querySelector('.dt-picker-panel')!
+  expect(panel).not.toBeNull()
+  // Search narrows the list without changing which repositories are selected. (The fixture's GitHub Source does not
+  // list these repositories, so each row also carries the "no longer on the Source" note; the match is on the name.)
+  const search = panel.querySelector('input') as HTMLInputElement
+  await type(search, 'widgets-node')
+  await settle()
+  const shown = Array.from(document.querySelectorAll('.dt-picker-list .dt-check')).map(item => item.textContent ?? '')
+  expect(shown).toHaveLength(1)
+  expect(shown[0]).toContain('acme/widgets-node')
+  expect(Array.from(document.querySelectorAll('.dt-picker-chip-name')).map(chip => chip.textContent))
+    .toEqual(['acme/widgets', 'acme/widgets-node', 'acme/other'])
+})
+
+/** Removing a chip drops that repository from the project and leaves the others alone. */
+it('removes a repository from the project through its chip', async () => {
+  server.settings.routing = { chats: [],
+    repositories: [{ repository: 'acme/widgets', workspace: '/srv/widgets' }, { repository: 'acme/widgets-node', workspace: '/srv/widgets' }] }
+  await render()
+  const remove = document.querySelector('.dt-picker-chip-x') as HTMLButtonElement
+  await act(async () => { remove.click() })
+  await settle()
+  await act(async () => { find(zh.save, 'button').click() })
+  await settle()
+  expect(server.settings.routing.repositories.map(row => row.repository)).toEqual(['acme/widgets-node'])
 })
 
 /**
@@ -109,7 +152,7 @@ it('saves every repository of a shared project, not only the one that was touche
   server.settings.routing = { chats: [],
     repositories: [{ repository: 'acme/widgets', workspace: '/srv/widgets' }, { repository: 'acme/widgets-node', workspace: '/srv/widgets' }] }
   await render()
-  const input = document.querySelector('.dt-checklist')!.closest('.dt-row')!.querySelector('input') as HTMLInputElement
+  const input = document.querySelector('.dt-picker')!.closest('.dt-row')!.querySelector('input') as HTMLInputElement
   await type(input, '/srv/shared')
   await settle()
   await act(async () => { find(zh.save, 'button').click() })

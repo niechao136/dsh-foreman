@@ -16,7 +16,20 @@
 .dt-section-name { white-space: nowrap; }
 .dt-count { font-size: var(--dt-fs-body); color: var(--dsw-alias-label-caption); font-variant-numeric: tabular-nums; font-weight: 400; }
 /* 一个项目挂多个仓库：勾选列表，换行排列，窄栏里也不会把行撑破。 */
-.dt-checklist { display: flex; flex-wrap: wrap; gap: var(--dt-space-1) var(--dt-space-4); padding: var(--dt-space-1) 0; }
+/* 仓库选择：一行摘要 + 按需展开的搜索列表，项目多起来后不会把整页撑成一片复选框。 */
+.dt-picker { display: flex; flex-direction: column; align-items: flex-start; gap: var(--dt-space-2); min-width: 0; }
+.dt-picker-field { display: flex; flex-direction: column; gap: var(--dt-space-2); min-width: 0; width: 100%; }
+.dt-picker-summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--dt-space-1); min-width: 0; }
+.dt-picker-empty { font-size: var(--dt-fs-body); color: var(--dsw-alias-label-tertiary); }
+.dt-picker-chip { display: inline-flex; align-items: center; max-width: 100%; gap: 2px; padding: 0 2px 0 var(--dt-space-2); border: 0.5px solid var(--dsw-alias-border-l4); border-radius: var(--dt-radius-sm); font-size: var(--dt-fs-tag); line-height: 1.6; color: var(--dsw-alias-label-secondary); }
+.dt-picker-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dt-picker-chip-x { display: inline-flex; align-items: center; padding: 0 2px; border: 0; background: none; cursor: pointer; color: var(--dsw-alias-label-tertiary); }
+.dt-picker-chip-x:hover { color: var(--dsw-alias-label-primary); }
+.dt-picker-panel { display: flex; flex-direction: column; gap: var(--dt-space-2); width: 100%; max-width: 520px; padding: var(--dt-space-2); border: 0.5px solid var(--dsw-alias-border-l4); border-radius: var(--dt-radius-sm); }
+.dt-picker-list { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+.dt-picker-list .dt-check { min-width: 0; }
+.dt-picker-list-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dt-picker-actions { display: flex; gap: var(--dt-space-1); }
 .dt-check { display: inline-flex; align-items: center; gap: var(--dt-space-1); font-size: var(--dt-fs-body); color: var(--dsw-alias-label-secondary); cursor: pointer; }
 .dt-check input { margin: 0; cursor: pointer; }
 .dt-hint { margin: 0; font-size: var(--dt-fs-body); line-height: 1.5; color: var(--dsw-alias-label-tertiary); }

@@ -5,6 +5,7 @@ import { readFeishuLink } from '../sources/feishu-read.ts'
 import { feishuRef, feishuSettings } from '../sources/feishu.ts'
 import type { SourceRegistry } from '../sources/registry.ts'
 import { triggerMessage } from '../executor/dsh.ts'
+import type { RosterEntry } from '../foreman/roster.ts'
 import { relatedTickets, ticketCard, triggerCard } from './cards.ts'
 import type { Store } from './store.ts'
 import type { TextCache } from './cache.ts'
@@ -15,6 +16,16 @@ export interface LinkHost {
   readonly commands: Commands
   readonly sources: SourceRegistry
   readonly lifetime: AbortSignal
+  /**
+   * The machines a ticket could be dispatched to, as the main Session may see them: ids, display names, project names
+   * and online state, never a path.
+   *
+   * It rides on the candidate card rather than in the system prompt because it changes while the process runs — a
+   * device connects, goes offline, is registered mid-session — and a card built at the moment the message arrives is
+   * the only place that can be current without composing a new system prompt per message. Absent when this
+   * installation has no device hub, in which case nothing here is dispatchable anyway.
+   */
+  readonly devices?: () => RosterEntry[]
 }
 
 /** Resolves and caches a trigger's external message URL, falling back to a readable resource path when lookup fails. */
@@ -62,10 +73,14 @@ export async function candidateCard(host: LinkHost, candidate: Candidate) {
     .map(item => ({ trigger_id: trigger.id, ticket_id: item.ticketId, reason: item.reason })))
   // Format the primary trigger like a worker input (including the message it replies to) and summarize earlier batch triggers as cards.
   const others = candidate.triggers.filter(trigger => trigger.id !== primary.id)
+  // The machines a routing decision may name. Without this the assessment is asked to copy a device "from the device
+  // registry" it was never shown, and it guesses a description of a machine instead of the id the selector matches.
+  const roster = host.devices?.() ?? []
   return { ...triggerMessage(primary, await sourceLink(host, primary), undefined, repliedTo(host, primary)), strength: candidate.strength,
     mode: settings.eval.mode, ...others.length ? { batch: others.map(trigger => triggerCard(trigger)) } : {},
     ...handedBack.length ? { handed_back: handedBack } : {}, ...relatedTickets(candidate.tickets),
     ...(delivered.length ? { delivered_to: delivered } : {}), ...(referenced.length ? { referenced_tickets: referenced.map(ticketCard) } : {}),
+    ...(roster.length ? { devices: roster } : {}),
     next_action: candidate.strength === 'explicit' ? 'Route it with orchestrator_route as dispatch says: accept, attach, stop or ignore.'
       : 'Ignore it with orchestrator_route if the card shows it touches no enabled rule; else assess it with orchestrator_eval, orchestrator_eval_read, then orchestrator_eval_decide.' }
 }

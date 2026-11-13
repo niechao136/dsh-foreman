@@ -124,15 +124,72 @@ const repoSettings = (projects: readonly Draft<Project>[]): RepoRow[] =>  projec
     .map(repository => ({ repository, workspace: project.workspace, ...project.labels?.length ? { labels: [...project.labels] } : {} })))
 
 /** The projects the operator may choose from, and the repositories they may put in one. */
+/**
+ * The repositories of one project, as a compact picker.
+ *
+ * It used to be a flat checklist under every project row, which is fine for two repositories and unusable for twenty:
+ * every row grew to the height of the whole GitHub Source, so the page became a wall of checkboxes where the thing an
+ * operator came to edit — the directory — was the smallest element on screen. Here the row keeps one line: the chosen
+ * repositories as chips, and a button that opens a searchable list only while it is being edited.
+ *
+ * The chosen set is still what the settings store holds, so nothing about the schema or the lookup changed.
+ */
+function RepositoryPicker({ selected, repositories, extra, onChange }: {
+  selected: readonly string[]; repositories: { value: string; label: string }[]
+  /** Chosen repositories the GitHub Source no longer lists; they stay selectable so an edit never drops one silently. */
+  extra: readonly string[]; onChange: (next: string[]) => void
+}) {
+  const { t } = usePanel()
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const toggle = (name: string) => onChange(selected.includes(name) ? selected.filter(item => item !== name) : [...selected, name])
+  const all = [...repositories.map(option => option.value), ...extra.filter(name => !repositories.some(option => option.value === name))]
+  const needle = query.trim().toLowerCase()
+  const shown = needle === '' ? all : all.filter(name => name.toLowerCase().includes(needle))
+  return <Field label={t('routingProjectRepositories')}>
+    <div className="dt-picker-field">
+      <div className="dt-picker">
+        <div className="dt-picker-summary">
+          {selected.length === 0
+            ? <span className="dt-picker-empty">{t('routingPickNone')}</span>
+            : selected.map(name => <span className="dt-picker-chip" key={name}>
+              <span className="dt-picker-chip-name" title={name}>{name}</span>
+              <button type="button" className="dt-picker-chip-x" aria-label={t('routingPickRemove', { name })}
+                onClick={() => toggle(name)}>
+                <Icon name="close" size={12} />
+              </button>
+            </span>)}
+        </div>
+        <Button variant="outline" size="sm" aria-expanded={open}
+          onClick={() => setOpen(!open)}>{open ? t('routingPickClose') : t('routingPickOpen', { count: String(selected.length) })}</Button>
+      </div>
+      {open && <div className="dt-picker-panel">
+        <Input value={query} placeholder={t('routingPickSearch')} onChange={event => setQuery(event.target.value)} />
+        {shown.length ? <div className="dt-picker-list" role="group" aria-label={t('routingProjectRepositories')}>
+          {shown.map(name => {
+            const unknown = !repositories.some(option => option.value === name)
+            return <label className="dt-check" key={name}>
+              <input type="checkbox" checked={selected.includes(name)} onChange={() => toggle(name)} />
+              <span className="dt-picker-list-name">{unknown ? t('routingRepositoryUnknown', { name }) : name}</span>
+            </label>
+          })}
+        </div> : <Hint>{needle === '' ? t('routingNoRepositories') : t('routingPickNoMatch')}</Hint>}
+        <div className="dt-picker-actions">
+          <Button variant="ghost" size="sm" disabled={shown.length === 0}
+            onClick={() => onChange([...new Set([...selected, ...shown])])}>{t('routingPickAll')}</Button>
+          <Button variant="ghost" size="sm" disabled={shown.length === 0}
+            onClick={() => onChange(selected.filter(name => !shown.includes(name)))}>{t('routingPickNoneOf')}</Button>
+        </div>
+      </div>}
+    </div>
+  </Field>
+}
+
 function ProjectRow({ project, repositories, onChange }: {
   project: Draft<Project>; repositories: { value: string; label: string }[]
   onChange: (next: Draft<Project>) => void
 }) {
   const { t } = usePanel()
-  const toggle = (name: string) => {
-    const has = project.repositories.includes(name)
-    onChange({ ...project, repositories: has ? project.repositories.filter(item => item !== name) : [...project.repositories, name] })
-  }
   // A stored repository the GitHub Source no longer lists still shows, so an edit never drops it without a word.
   const known = new Set(repositories.map(option => option.value))
   const extra = project.repositories.filter(name => !known.has(name))
@@ -142,18 +199,8 @@ function ProjectRow({ project, repositories, onChange }: {
         onChange={workspace => onChange({ ...project, workspace })} />
       {labelsCell(project.labels, labels => onChange({ ...project, labels: labels.length ? labels : undefined }), t('routingLabels'))}
     </FieldGrid>
-    <Field label={t('routingProjectRepositories')}>
-      {repositories.length || extra.length ? <div className="dt-checklist">
-        {repositories.map(option => <label key={option.value} className="dt-check">
-          <input type="checkbox" checked={project.repositories.includes(option.value)} onChange={() => toggle(option.value)} />
-          <span>{option.label}</span>
-        </label>)}
-        {extra.map(name => <label key={name} className="dt-check">
-          <input type="checkbox" checked onChange={() => toggle(name)} />
-          <span>{t('routingRepositoryUnknown', { name })}</span>
-        </label>)}
-      </div> : <Hint>{t('routingNoRepositories')}</Hint>}
-    </Field>
+    <RepositoryPicker selected={project.repositories} repositories={repositories} extra={extra}
+      onChange={next => onChange({ ...project, repositories: next })} />
     {project.repositories.length > 1 && <p className="dt-hint">{t('routingSharedWorkspace', { count: String(project.repositories.length) })}</p>}
   </li>
 }

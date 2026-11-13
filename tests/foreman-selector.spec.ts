@@ -62,3 +62,25 @@ it('carries a device the accept named through to the selection, by id or by name
   expect(selectDevice({ device: 'laptop', project: 'shop' }, [laptop, other], online)!.deviceId).toBe('laptop')
   expect(selectDevice({ device: 'Dorm', project: 'shop' }, [laptop, other], online)!.deviceId).toBe('dorm')
 })
+
+it('matches a device named the way a person or an assessment writes it, not only the exact registry string', () => {
+  // The real accept carried the display name and the id typed together; strict equality matched neither and the
+  // ticket was blocked as though the machine were offline.
+  const pc: DeviceRecord = { id: 'pc', name: '宿舍电脑', labels: [], tokenHash: 'q', roots: [{ project: 'fold', path: 'F:\\\\github\\\\fold' }] }
+  const live = [{ id: 'pc', running: 0 }]
+  expect(selectDevice({ device: '宿舍电脑 pc', project: 'fold' }, [pc], live)!.deviceId).toBe('pc')
+  expect(selectDevice({ device: 'pc 宿舍电脑', project: 'fold' }, [pc], live)!.deviceId).toBe('pc')
+  expect(selectDevice({ device: '宿舍电脑（pc）', project: 'fold' }, [pc], live)!.deviceId).toBe('pc')
+  expect(selectDevice({ device: '  宿舍电脑  ', project: 'fold' }, [pc], live)!.deviceId).toBe('pc')
+  // Casing is the machine's, not the sentence's.
+  expect(selectDevice({ device: 'PC', project: 'fold' }, [pc], live)!.deviceId).toBe('pc')
+})
+
+it('never matches one device by a name that merely contains another device\'s id', () => {
+  const a: DeviceRecord = { id: 'pc', name: 'Dorm', labels: [], tokenHash: 'a', roots: [{ project: 'shop', path: '/a' }] }
+  const b: DeviceRecord = { id: 'pc-2', name: 'Office', labels: [], tokenHash: 'b', roots: [{ project: 'shop', path: '/b' }] }
+  const live = [{ id: 'pc', running: 5 }, { id: 'pc-2', running: 0 }]
+  // `pc-2` contains `pc`, but naming `pc` must still mean device `pc` and nothing else — no prefix matching.
+  expect(selectDevice({ device: 'pc', project: 'shop' }, [a, b], live)!.deviceId).toBe('pc')
+  expect(selectDevice({ device: 'pc-2', project: 'shop' }, [a, b], live)!.deviceId).toBe('pc-2')
+})

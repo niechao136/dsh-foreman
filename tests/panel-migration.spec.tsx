@@ -57,14 +57,16 @@ it('offers the export as a plain download link rather than a scripted request', 
   expect(link!.textContent).toContain(zh.migrationExportButton)
 })
 
-/** Restoring is not open yet, and the page says why instead of offering a button that cannot work. */
-it('does not offer a restore it cannot perform', async () => {
+/** Restoring is offered as a two-step flow: upload and check, then apply. */
+it('offers a restore through upload-then-apply rather than one click', async () => {
   await render()
   const page = text()
-  expect(page).toContain(zh.migrationImportNotYet)
-  const restore = Array.from(document.querySelectorAll('button')).find(button => button.textContent === zh.migrationImportButton)
-  expect(restore).toBeDefined()
-  expect((restore as HTMLButtonElement).disabled).toBe(true)
+  // The upload control and the apply button both exist, and applying starts disabled: nothing is checked yet.
+  expect(page).toContain(zh.migrationUpload)
+  const apply = Array.from(document.querySelectorAll('button')).find(button => button.textContent === zh.migrationApply)
+  expect(apply).toBeDefined()
+  expect((apply as HTMLButtonElement).disabled).toBe(true)
+  expect(document.querySelector('input[type="file"]')).not.toBeNull()
 })
 
 /** It also names the check to run after unpacking, which is the part a ticket count cannot make. */

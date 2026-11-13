@@ -44,6 +44,7 @@ import { Hub } from '../foreman/hub.ts'
 import { serve, type Served } from '../foreman/ws.ts'
 import { prepareTicketWithForeman, reselectForRetry, type PrepareInput } from '../foreman/prepare.ts'
 import { deviceRoster } from '../foreman/roster.ts'
+import type { Pending } from './import.ts'
 import { routeIndexOf, chatRouteOf, repositoryRouteOf, type ChatIndex } from '../foreman/routing.ts'
 import { canonicalPath, samePath } from '../foreman/path.ts'
 import { FOREMAN_PROTOCOL_VERSION, supports, type PartFrame } from '../foreman/protocol.ts'
@@ -145,6 +146,7 @@ export class Runtime extends Service implements SourceHost {
   private quiet = 0
   constructor(ctx: Context, readonly machine: Machine, restart: () => void) {
     super(ctx, 'orchestrator')
+    this.restartCallback = restart
     const runtime = this
     // Lock the state directory before opening the database so another process cannot migrate or write concurrently.
     mkdirSync(machine.stateDir, { recursive: true, mode: 0o700 })
@@ -468,8 +470,7 @@ export class Runtime extends Service implements SourceHost {
     return false
   }
 
-  /** 某条主子管哪个目录；不是主子、或账上还没有它时为 undefined。 */
-  workspaceOf(sessionId: string): string | undefined {
+  /** 某条主子管哪个目录；不是主子、或账上还没有它时为 undefined。 */  workspaceOf(sessionId: string): string | undefined {
     for (const [workspaceId, id] of this.masters) {
       if (String(id) !== String(sessionId)) continue
       return this.ctx.workspaceRegistry.get(workspaceId as never)?.path
@@ -834,6 +835,10 @@ export class Runtime extends Service implements SourceHost {
     const { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks, setup, passes } = this
     return { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks,
       masterIds: () => runtime.masterIds(), masterFor: workspaceId => runtime.masterFor(workspaceId),
+      // A restore stops the hub, swaps the tree, and starts it again; both halves are the runtime's own lifecycle.
+      get pendingRestore() { return runtime.pendingRestore }, set pendingRestore(value) { runtime.pendingRestore = value },
+      stop: () => runtime.stop(), restart: () => runtime.restart(),
+      log: { info: (message: string) => this.ctx.logger.info('%s', message) },
       get deployment() { return setup.deployment },
       get setupProblem() { return setup.problem }, get sourceProblems() { return setup.problems },
       configured: () => setup.configured(), links: () => runtime.links(), ticketEnvironment: ticket => runtime.ticketEnvironment(ticket),
@@ -888,8 +893,20 @@ export class Runtime extends Service implements SourceHost {
     for (const dispose of this.disposers.reverse()) dispose()
     await this.ctx.sessionPersistence.flush()
   }
-  /** Idempotent stop; concurrent or repeated calls share the same shutdown promise. */
+  /** 幂等停止；并发或重复调用共用同一个 shutdown promise。 */
   stop(): Promise<void> { return this.stopping ??= this.shutdown() }
+
+  /** 迁移导入用：停服后再起来。具体动作由插件入口注入（`fiber.restart()`）。 */
+  private restartCallback: () => void = () => {}
+  restart(): void { this.restartCallback() }
+
+  /**
+   * An archive uploaded and checked, waiting to be applied.
+   *
+   * It lives on the runtime rather than in the request handler so the operator can upload, read the report, and only
+   * then apply — the check is worthless if the same request has to both produce and accept it.
+   */
+  pendingRestore?: Pending | undefined
   private async shutdown(): Promise<void> {
     this.closingFlag = true; const passes = this.passes.stop(); this.stopped.abort()
     try {

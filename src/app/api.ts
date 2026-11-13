@@ -74,6 +74,12 @@ export interface Api {
    */
   'GET migration': { response: { canExport: boolean; reason?: string; canImport: boolean;
     entries: { name: string; bytes?: number }[] } }
+  /**
+   * Restoring: the archive is uploaded to `/orchestrator/restore` as raw bytes (not JSON, so it is not in this table),
+   * checked, and only a report with no problems may be applied. `apply` stops the hub, swaps the tree and restarts it.
+   */
+  'POST migration/apply': { response: { restored: true; backup: string; moved: string[]; restarting: true } }
+  'POST migration/cancel': { response: { cancelled: true } }
   /** 登记一台新设备；令牌只在这里返回一次，库里只存哈希。 */
   'POST devices': { body: { id: string; name: string; labels?: string[]; roots: { project: string; path: string }[] };
     response: { id: string; token: string } }

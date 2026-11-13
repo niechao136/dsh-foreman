@@ -34,6 +34,10 @@
 .dt-migration-entries { margin: 0; }
 .dt-migration-entry { display: flex; align-items: baseline; justify-content: space-between; gap: var(--dt-space-3); padding: 2px 0; }
 .dt-migration-size { flex: none; font-size: var(--dt-fs-meta); color: var(--dsw-alias-label-tertiary); }
+/* 导入：先选文件再上传，报告列出问题与缺失目录，确认按钮单独一行。 */
+.dt-restore-pick { display: flex; flex-wrap: wrap; align-items: center; gap: var(--dt-space-2); }
+.dt-restore-report { display: flex; flex-direction: column; gap: var(--dt-space-1); padding: var(--dt-space-2) 0; }
+.dt-restore-paths { list-style: none; margin: 0; padding: 0 0 0 var(--dt-space-3); display: flex; flex-direction: column; gap: 2px; }
 .dt-check { display: inline-flex; align-items: center; gap: var(--dt-space-1); font-size: var(--dt-fs-body); color: var(--dsw-alias-label-secondary); cursor: pointer; }
 .dt-check input { margin: 0; cursor: pointer; }
 .dt-hint { margin: 0; font-size: var(--dt-fs-body); line-height: 1.5; color: var(--dsw-alias-label-tertiary); }

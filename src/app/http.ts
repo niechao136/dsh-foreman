@@ -5,6 +5,8 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import { createHash, randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { mkdir, writeFile } from 'node:fs/promises'
+import { createWriteStream } from 'node:fs'
+import { once } from 'node:events'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { THREAD_FILTERS, TICKET_FILTERS, type Api, type ApiResponse, type RouteParams } from './api.ts'
@@ -36,6 +38,7 @@ import { executorLoad, ticketDetail, ticketList } from './views/tickets.ts'
 import { devicesView } from './views/devices.ts'
 import { archiveName, canExport, homeOf, pack } from './export.ts'
 import { carried } from './migrate.ts'
+import { clearStaging, sizeOfFile, swap, unpack, uploadPath, type Pending } from './import.ts'
 import type { DeviceInput, DeviceRecord } from '../foreman/devices.ts'
 import type { Online } from '../foreman/selector.ts'
 
@@ -84,6 +87,14 @@ export interface HttpHost {
   updateDevice(id: string, change: { name?: string; labels?: string[]; roots?: { project: string; path?: string }[] }): void
   /** Replaces a device's token and returns the new one, which is not stored in readable form anywhere. */
   rotateDeviceToken(id: string): string
+  /** The archive uploaded and checked but not yet applied, if any. */
+  pendingRestore?: Pending | undefined
+  /** Stops the runtime: closes the database and releases the state-directory lock a restore swaps under. */
+  stop(): Promise<void>
+  /** Starts the runtime again after a restore; deferred so the answering request goes out first. */
+  restart(): void
+  /** A logger for the few operations whose outcome only exists in the service log, such as a completed restore. */
+  readonly log?: { info?: (message: string) => void }
   /**
    * 写请求的凭据校验；省略时用 {@link pageCredential} 向宿主页面入口核对。
    * 单独暴露出来是为了测试能直接给定结论，而不必真的监听端口。
@@ -109,6 +120,25 @@ async function readBody(req: IncomingMessage, maxBytes = 128 * 1024): Promise<un
   }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown }
   catch { throw new RouteError(400, 'The request body is not JSON') }
+}
+/**
+ * Write a request body straight to a file, for the one route that receives an archive.
+ *
+ * `readBody` exists for JSON and refuses anything over 128 KB. An export of a real hub is megabytes, and buffering it
+ * to parse would both fail the limit and hold the whole archive in memory, so the upload streams instead. The cap here
+ * is a guard against a runaway upload, not a real constraint on a hub of any plausible size.
+ */
+async function streamToFile(req: IncomingMessage, path: string, maxBytes = 2 * 1024 * 1024 * 1024): Promise<void> {
+  let size = 0
+  const sink = createWriteStream(path, { mode: 0o600 })
+  try {
+    for await (const chunk of req) {
+      const bytes = Buffer.from(chunk as Buffer)
+      size += bytes.length
+      if (size > maxBytes) throw new RouteError(400, `Upload exceeds ${maxBytes} bytes`)
+      if (!sink.write(bytes)) await once(sink, 'drain')
+    }
+  } finally { sink.end(); await once(sink, 'close').catch(() => undefined) }
 }
 function json(res: ServerResponse, status: number, value: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }); res.end(JSON.stringify(value))
@@ -365,9 +395,52 @@ function routes(runtime: HttpHost): Routes {
       const packable = canExport()
       return { canExport: packable,
         ...packable ? {} : { reason: 'This machine cannot pack an archive (no tar). Use scripts/migrate.mjs on a Linux hub.' },
-        // Restoring replaces the ledger under a running hub; it is staged as upload → check → stop → swap → restart.
-        canImport: false,
+        canImport: canExport(),
         entries: carried(home) }
+    },
+    /**
+     * Restore from an archive: upload → check → swap → restart.
+     *
+     * Three routes rather than one call, because the middle step is the one a person must judge: the archive is
+     * unpacked and checked first, and only a restore whose checks passed may be applied. Folding upload and swap into a
+     * single request would make "restore" an action that either worked or left a mixed tree, with no moment in between.
+     *
+     * `POST migration/upload` streams the body to disk — the shared `readBody` parses JSON and caps at 128 KB, which
+     * an archive is not — then unpacks and checks it, answering with the report.
+     */
+    /**
+     * Apply the checked archive: stop, swap, restart.
+     *
+     * The swap happens *after* `stop()` has returned, because only then has the database been closed and the state
+     * directory's lock released — replacing the files before that would swap the tree under an open connection. The
+     * restart is deferred to the next macrotask so this response goes out first: the caller is the panel, and a panel
+     * that never hears back cannot tell a restart from a hang.
+     */
+    'POST migration/apply': async () => {
+      const pending = runtime.pendingRestore
+      if (pending === undefined) throw new RouteError(400, 'Nothing has been uploaded to restore')
+      if (pending.report.problems.length) throw new RouteError(400, `This archive cannot be restored: ${pending.report.problems.join('; ')}`)
+      // Refuse the one case that would be unrecoverable: an archive that names directories this machine lacks would
+      // restore into a hub that opens, counts its tickets, and cannot run them.
+      if (pending.report.missingDirectories.length) {
+        throw new RouteError(400, `The archive names ${pending.report.missingDirectories.length} work director`
+          + `${pending.report.missingDirectories.length === 1 ? 'y' : 'ies'} this machine does not have:\n`
+          + pending.report.missingDirectories.slice(0, 5).join('\n'))
+      }
+      const home = homeOf(runtime.machine.stateDir)
+      runtime.pendingRestore = undefined
+      // Stop first: this is what closes the database and releases the lock the swap depends on.
+      await runtime.stop()
+      const result = swap(home, pending.unpacked, new Date())
+      runtime.log?.info?.(`dsh-foreman restored ${home}; the previous home is at ${result.backup}`)
+      setTimeout(() => runtime.restart(), 50)
+      return { restored: true as const, backup: result.backup, moved: result.moved, restarting: true as const }
+    },
+    /** Abandons an uploaded archive without touching the ledger. */
+    'POST migration/cancel': () => {
+      runtime.pendingRestore = undefined
+      clearStaging(runtime.machine.stateDir)
+      return { cancelled: true as const }
     },
     /** 登记一台新设备。令牌只在这一次响应里出现，刷新就没了。 */
     'POST devices': async input => {
@@ -482,6 +555,35 @@ export function registerHttp(ctx: Context, runtime: HttpHost): () => void {
         // ends cleanly would look like a successful export.
         ctx.logger.error('orchestrator export failed: %s', error instanceof Error ? error.stack ?? error.message : String(error))
         res.destroy(error instanceof Error ? error : new Error(String(error)))
+      }
+    } }),
+    /**
+     * `POST /orchestrator/restore`: an archive uploaded as raw bytes.
+     *
+     * A separate route because the shared JSON handler cannot take an archive: `readBody` parses JSON and refuses
+     * anything over 128 KB. The body streams straight to a file, then the tree is unpacked and checked in staging and
+     * the report is answered — the archive is never applied here, so a person reads the report before anything is
+     * replaced.
+     */
+    ctx.webServer.register({ kind: 'prefix', path: '/orchestrator/restore', handler: async (req, res) => {
+      if (!sameOrigin(req, ctx.webServer.port)) { json(res, 403, { error: 'Same-origin management request required' }); return }
+      if ((req.method ?? 'POST') !== 'POST') { json(res, 405, { error: 'Use POST' }); return }
+      if (!await credential(req).catch(() => true)) { json(res, 403, { code: 'credential-required' }); return }
+      if (!canExport()) { json(res, 400, { error: 'This machine cannot restore an archive (no tar)' }); return }
+      try {
+        await runtime.ready
+        clearStaging(runtime.machine.stateDir)
+        const target = uploadPath(runtime.machine.stateDir)
+        await streamToFile(req, target)
+        const bytes = sizeOfFile(target)
+        if (bytes === 0) throw new RouteError(400, 'The upload arrived empty')
+        const pending = unpack(homeOf(runtime.machine.stateDir), runtime.machine.stateDir, target, bytes)
+        // Held until applied: an operator who uploads a second archive is checking it, not queuing a restore.
+        runtime.pendingRestore = pending
+        json(res, 200, pending.report)
+      } catch (error) {
+        clearStaging(runtime.machine.stateDir)
+        json(res, ...failure(error, internal))
       }
     } }),
     ctx.webServer.register({ kind: 'prefix', path: '/orchestrator', handler: async (req, res) => {

@@ -324,10 +324,12 @@ const ROUTES: { [K in keyof Api]: Route<K> } = {
   'GET state': { answer: stateView },
   'GET overview': { answer: overviewView },
   // What a move would carry, as a Linux hub reports it: packing works, restoring is not open yet.
-  'GET migration': { answer: () => ({ canExport: true, canImport: false,
+  'GET migration': { answer: () => ({ canExport: true, canImport: true,
     entries: [{ name: 'state/superagent', bytes: 8_680_957 }, { name: 'storages', bytes: 324_718 },
       { name: 'sessions', bytes: 2_630_165 }, { name: 'attachments' }, { name: '.credentials.yaml', bytes: 161 },
       { name: 'profiles', bytes: 1_203_386 }] }) },
+  'POST migration/apply': { answer: () => ({ restored: true as const, backup: '/tmp/home.bak-1', moved: ['state/superagent'], restarting: true as const }) },
+  'POST migration/cancel': { answer: () => ({ cancelled: true as const }) },
   'GET search': { query: ['q'], answer: async ({ query }) => {
     const q = query.q ?? ''
     await server.searching?.(q)

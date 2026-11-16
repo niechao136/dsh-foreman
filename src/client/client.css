@@ -99,6 +99,9 @@
 .dt-select { box-sizing: border-box; width: 100%; min-width: 0; height: 32px; border: 0.5px solid var(--dsw-alias-border-l4); border-radius: var(--dt-radius-sm); padding: 0 28px 0 var(--dt-space-2); text-overflow: ellipsis; font: inherit; font-size: var(--dt-fs-sub); line-height: 1.5; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1, transparent); }
 .dt-textarea:focus-visible, .dt-select:focus-visible { outline: var(--dt-focus); outline-offset: 1px; }
 .dt-mono { font-family: var(--ds-font-family-code, Menlo, monospace); font-size: var(--dt-fs-meta); overflow-wrap: anywhere; }
+/* 令牌一行：长令牌允许折行，按钮不许被挤变形。 */
+.dt-token-line { display: flex; align-items: center; gap: var(--dt-space-2); flex-wrap: wrap; margin-top: var(--dt-space-2); }
+.dt-token-line .dt-mono { flex: 1 1 12em; min-width: 0; }
 .dt-detail-text { margin-top: 2px; color: var(--dsw-alias-label-secondary); }
 .dt-savebar .dt-error { white-space: pre-line; }
 .dt-switch-row { display: flex; align-items: center; justify-content: space-between; gap: var(--dt-space-4); min-height: 36px; font-size: var(--dt-fs-body); }

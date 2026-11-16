@@ -209,9 +209,51 @@ export function pageCredential(port: number, host?: string): (req: Pick<Incoming
   }
 }
 export function sameOrigin(req: Pick<IncomingMessage, 'headers'>, port: number): boolean {
-  const host = req.headers.host
-  if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) return false
-  return req.headers['x-orchestrator-request'] === '1' && (req.headers.origin === undefined || req.headers.origin === `http://${host}`)
+  // 端口不参与判定：经 SSH 端口转发进来时，浏览器看到的端口和 hub 自己的 `webServer.port`
+  // 未必是同一个数（本地 8080 转到远端 3100 很常见），而 Host 头带的是浏览器看到的那个。
+  // 真正拦住跨站写请求的是标记头——它是自定义头，跨源必须先过 CORS 预检，普通页面发不出来。
+  if (!loopbackRequest(req.headers)) return false
+  if (req.headers['x-orchestrator-request'] !== '1') return false
+  const origin = req.headers.origin
+  return origin === undefined || origin === `http://${req.headers.host}`
+}
+/**
+ * 请求的主机名是不是本机回环，**不限端口**。
+ *
+ * 端口转发（`ssh -L 8080:127.0.0.1:3100`，或本地换了号）会让浏览器看到的端口和 hub 自己
+ * `webServer.port` 不是同一个数，而 Host 头带的是浏览器看到的那个。所以管理路由一律只认主机名，
+ * 端口不参与判定：真正拦住跨站请求的是标记头（写操作）和 `sec-fetch-site`（下载）。
+ */
+export function loopbackRequest(headers: IncomingMessage['headers']): boolean {
+  const host = headers.host
+  if (!host) return false
+  // IPv6 字面量形如 [::1]:3100，方括号里才是主机名；不带方括号的裸 `::1` 没有端口，整串就是主机名。
+  if (host.startsWith('[')) {
+    const name = host.slice(0, host.indexOf(']') + 1)
+    return name === '[::1]'
+  }
+  if (host.includes('::')) return host === '::1'
+  const name = host.split(':')[0]
+  return name === '127.0.0.1' || name === 'localhost'
+}
+/**
+ * 下载入口的判定：它是一次**浏览器导航**，不是 fetch。
+ *
+ * `<a download>` 是浏览器自己发起的请求，带不了 `x-orchestrator-request`——这正是之前下载
+ * 变成 `export.json` 的原因：路由回了 403 的 JSON，浏览器按 `application/json` 存盘。
+ * 所以这里认两件事之一，且都要求主机名是回环：
+ *
+ * - 标记头（同源 `fetch` 或脚本调用）；
+ * - 浏览器自己打的导航标记 `sec-fetch-site: same-origin` / `none`（地址栏直接打开）。
+ *
+ * `sec-fetch-*` 是浏览器独占的请求头，页面脚本改不了，跨站链接只会得到 `cross-site`，
+ * 因此不能拿它当 CSRF 的缺口；而导出本身是只读操作，不产生任何写入。
+ */
+export function downloadOrigin(req: Pick<IncomingMessage, 'headers'>): boolean {
+  if (!loopbackRequest(req.headers)) return false
+  if (req.headers['x-orchestrator-request'] === '1') return true
+  const site = req.headers['sec-fetch-site']
+  return site === 'same-origin' || site === 'none'
 }
 /**
  * Maps errors to HTTP status codes and structured payloads that the panel localizes in the interface language.
@@ -537,7 +579,8 @@ export function registerHttp(ctx: Context, runtime: HttpHost): () => void {
      * so it takes the same GET path through the credential check as any other read.
      */
     ctx.webServer.register({ kind: 'prefix', path: '/orchestrator/export', handler: async (req, res) => {
-      if (!sameOrigin(req, ctx.webServer.port)) { json(res, 403, { error: 'Same-origin management request required' }); return }
+      // 下载走的是浏览器导航，不是 fetch：判定见 `downloadOrigin`（回环 + 标记头或同源导航）。
+      if (!downloadOrigin(req)) { json(res, 403, { error: 'Same-origin management request required' }); return }
       if ((req.method ?? 'GET') !== 'GET') { json(res, 405, { error: 'Use GET' }); return }
       if (!canExport()) {
         json(res, 400, { error: 'This machine cannot pack an archive (no tar); use scripts/migrate.mjs on a Linux hub, or copy the entries by hand' })

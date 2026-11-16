@@ -48,13 +48,21 @@ it('states the total, and that dependencies are excluded from it', async () => {
   expect(page).toContain('profiles/node_modules')
 })
 
-/** The download is a real link to the streaming endpoint, so the browser saves the archive as it arrives. */
+/**
+ * The download is a real link to the streaming endpoint, so the browser saves the archive as it arrives.
+ *
+ * The link carries no `x-orchestrator-request` header — a browser navigation cannot set one — which is why the
+ * export route accepts a same-origin navigation (`sec-fetch-site`) as well. Before that, the route answered 403
+ * with a JSON body and the browser saved it as `export.json`.
+ */
 it('offers the export as a plain download link rather than a scripted request', async () => {
   await render()
   const link = document.querySelector('a[download]') as HTMLAnchorElement | null
   expect(link).not.toBeNull()
   expect(link!.getAttribute('href')).toBe('/orchestrator/export')
   expect(link!.textContent).toContain(zh.migrationExportButton)
+  // Nothing in the markup adds a marker header: the link has to work as a bare navigation.
+  expect(link!.outerHTML).not.toContain('x-orchestrator-request')
 })
 
 /** Restoring is offered as a two-step flow: upload and check, then apply. */

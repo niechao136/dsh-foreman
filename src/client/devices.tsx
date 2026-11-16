@@ -2,15 +2,29 @@
 import { Fragment, useState } from 'react'
 import type { DeviceRow } from '../app/views/devices.ts'
 import { usePoll } from './api.ts'
-import { Button, Dot, Input } from './controls.tsx'
+import { Button, Dot, Icon, Input } from './controls.tsx'
 import { usePanel } from './provider.tsx'
 import { errorText } from './text.ts'
 import { Field, FieldGrid } from './settings-kit.tsx'
 import { Card, Empty, ErrorLine, Hint, KeyValues, ListSection, PageHead, Section, StatCard, When } from './widgets.tsx'
 
+/**
+ * 把一段文本放进剪贴板，并告诉人已经复制了。
+ *
+ * 令牌只显示一次，靠手选容易漏掉一个字符；`navigator.clipboard` 在非安全上下文里是 undefined，
+ * 所以失败时要如实说，而不是静默无声。
+ */
+async function copyText(text: string, notify: (message: string) => void, done: string, failed: string) {
+  try {
+    if (!navigator.clipboard) throw new Error('clipboard unavailable')
+    await navigator.clipboard.writeText(text)
+    notify(done)
+  } catch { notify(failed) }
+}
+
 /** The device list, the registration form, and the two token actions. */
 export function DevicesSettings() {
-  const { t, call } = usePanel()
+  const { t, call, notify } = usePanel()
   const { data, error, reload } = usePoll(() => call('GET devices'), [])
   const [rotated, setRotated] = useState<{ id: string; token: string }>()
   const [editing, setEditing] = useState<DeviceRow>()
@@ -37,7 +51,11 @@ export function DevicesSettings() {
     {/* 新令牌只在这里显示一次：库里只有哈希，页面刷新后拿不回来。 */}
     {rotated && <Card title={t('devicesRotated')} tone="warn">
       <Hint>{t('devicesRotatedHint')}</Hint>
-      <code className="dt-mono" data-device-token>{rotated.token}</code>
+      <div className="dt-token-line">
+        <code className="dt-mono" data-device-token>{rotated.token}</code>
+        <Button variant="outline" size="sm" icon={<Icon name="copy" />} data-copy-token
+          onClick={() => { void copyText(rotated.token, notify, t('copied'), t('copyFailed')) }}>{t('copyToken')}</Button>
+      </div>
     </Card>}
     {error && data && <ErrorLine error={errorText(error)} title={t('loadFailed')} onRetry={() => { void reload() }} />}
   </>
@@ -96,7 +114,7 @@ interface RootDraft { project: string; path: string }
  * says so instead of letting someone find out at the device.
  */
 function AddDevice({ onAdded }: { onAdded: () => void }) {
-  const { t, call } = usePanel()
+  const { t, call, notify } = usePanel()
   // The hub's own port, so the card names an address that is actually listening; 0 means the hub is off.
   const { data: state } = usePoll(() => call('GET state'), [])
   const [id, setId] = useState('')
@@ -150,7 +168,14 @@ function AddDevice({ onAdded }: { onAdded: () => void }) {
     {minted && <Card title={t('devicesAddMinted')} tone="warn">
       <Hint>{t('devicesAddMintedHint')}</Hint>
       <KeyValues rows={mintedRows(minted, hubPort)} />
-      <code className="dt-mono" data-device-token>{minted.token}</code>
+      <div className="dt-token-line">
+        <code className="dt-mono" data-device-token>{minted.token}</code>
+        <Button variant="outline" size="sm" icon={<Icon name="copy" />} data-copy-token
+          onClick={() => { void copyText(minted.token, notify, t('copied'), t('copyFailed')) }}>{t('copyToken')}</Button>
+        {/* 整段配置一起复制：新增设备时要填 url / deviceId / token 三个值，逐格选很容易贴错行。 */}
+        <Button variant="outline" size="sm" icon={<Icon name="copy" />} data-copy-config
+          onClick={() => { void copyText(mintedConfig(minted, hubPort), notify, t('copied'), t('copyFailed')) }}>{t('copyDeviceConfig')}</Button>
+      </div>
     </Card>}
   </>
 }
@@ -167,6 +192,10 @@ function mintedRows(minted: { id: string; token: string }, hubPort: number): [st
     ['deviceId', minted.id],
     ['token', minted.token],
   ]
+}
+/** The same three values as one block, for pasting into a device's configuration in one go. */
+function mintedConfig(minted: { id: string; token: string }, hubPort: number): string {
+  return mintedRows(minted, hubPort).map(([key, value]) => `${key}: ${value}`).join('\n')
 }
 
 /**

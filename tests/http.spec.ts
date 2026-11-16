@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { z } from 'zod'
-import { pageCredential, registerHttp } from '../src/app/http.ts'
+import { downloadOrigin, loopbackRequest, pageCredential, registerHttp, sameOrigin } from '../src/app/http.ts'
 import { PromptConflict } from '../src/app/prompts.ts'
 import { SettingsConflict } from '../src/app/settings.ts'
 import type { HttpHost } from '../src/app/http.ts'
@@ -85,15 +85,49 @@ it('decodes path parameters and parses each route\'s query', async () => {
   expect(seen).toEqual(['feishu:oc_1:om/root', { filter: { kinds: ['accept', 'reopen'], since: expect.any(String) }, offset: 0, limit: 200 }])
 })
 
+/**
+ * The export is the one route a browser navigates to directly, so it cannot rely on the marker header.
+ *
+ * These are the two failures an operator actually hit: through an SSH port forward the port in `Host` is not the
+ * hub's own, and a bare `<a download>` navigation carries no `x-orchestrator-request` at all. Both used to answer
+ * 403 with a JSON body, which the browser saved as `export.json`.
+ */
+it('lets a loopback download through on a forwarded port, and still refuses a cross-site one', () => {
+  // Port forwarding: the browser is on 127.0.0.1:8080, the hub listens on 3100.
+  expect(downloadOrigin({ headers: { host: '127.0.0.1:8080', 'x-orchestrator-request': '1' } })).toBe(true)
+  // A plain link navigation has no marker header; the browser's own `sec-fetch-site` is what identifies it.
+  expect(downloadOrigin({ headers: { host: '127.0.0.1:8080', 'sec-fetch-site': 'same-origin' } })).toBe(true)
+  expect(downloadOrigin({ headers: { host: 'localhost:8080', 'sec-fetch-site': 'none' } })).toBe(true)
+  // A link opened from another site, and any non-loopback host, are still refused.
+  expect(downloadOrigin({ headers: { host: '127.0.0.1:8080', 'sec-fetch-site': 'cross-site' } })).toBe(false)
+  expect(downloadOrigin({ headers: { host: 'evil.example:8080', 'sec-fetch-site': 'same-origin' } })).toBe(false)
+  expect(downloadOrigin({ headers: {} })).toBe(false)
+  // The marker header alone is not enough off loopback either: the archive is not served to a remote host.
+  expect(downloadOrigin({ headers: { host: '10.0.0.5:3100', 'x-orchestrator-request': '1' } })).toBe(false)
+})
+
+it('reads the loopback name out of an IPv4, IPv6 or bracketed host', () => {
+  expect(loopbackRequest({ host: '127.0.0.1:3100' })).toBe(true)
+  expect(loopbackRequest({ host: 'localhost:3100' })).toBe(true)
+  expect(loopbackRequest({ host: '[::1]:3100' })).toBe(true)
+  expect(loopbackRequest({ host: '::1' })).toBe(true)
+  expect(loopbackRequest({ host: '192.168.1.10:3100' })).toBe(false)
+  expect(loopbackRequest({})).toBe(false)
+})
+
 it('answers only a same-origin request from the panel on the loopback address', async () => {
   const call = serve({ sessions: { delivery: async () => 'injected' }, engine: { unsubscribe: () => true } })
   const post = (headers: Headers) => call('POST', 'threads/github%3A1/unsubscribe', undefined, headers)
-  for (const headers of [{ 'x-orchestrator-request': undefined }, { host: 'evil.example:3082' }, { host: '127.0.0.1:9999' },
+  for (const headers of [{ 'x-orchestrator-request': undefined }, { host: 'evil.example:3082' },
     { origin: 'http://evil.example' }, { host: 'localhost:3082', origin: 'http://127.0.0.1:3082' }]) {
     expect(await post(headers), JSON.stringify(headers)).toEqual({ status: 403,
       body: { error: 'Same-origin management request required' } })
   }
   expect(await post({ host: 'localhost:3082', origin: 'http://localhost:3082' })).toMatchObject({ status: 200 })
+  // 端口不参与判定：SSH 端口转发时浏览器看到的端口和 hub 自己监听的不是同一个数，
+  // 只认主机名是回环；跨站写请求仍然被标记头挡住（自定义头必须先过 CORS 预检）。
+  expect(await post({ host: '127.0.0.1:9999' })).toMatchObject({ status: 200 })
+  expect(await post({ host: '[::1]:9999' })).toMatchObject({ status: 200 })
   // Management routes require a loopback Web server.
   expect(() => serve({}, '0.0.0.0')).toThrow('Orchestrator management requires a loopback Web server')
 })

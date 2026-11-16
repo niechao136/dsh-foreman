@@ -118,3 +118,35 @@ it('deletes a device only after a second press, because deleting loses the recor
   await click(zh.deviceDeleteConfirm)
   expect(server.requests.find(request => request.method === 'DELETE')?.path).toBe('devices/pc')
 })
+
+/**
+ * The token is shown once and only its hash is stored, so selecting it by hand is the one chance to get it wrong.
+ * The copy button is what a person actually needs at that moment.
+ */
+it('offers a copy button for the newly minted token, and copies the whole config too', async () => {
+  const written: string[] = []
+  Object.defineProperty(navigator, 'clipboard', { configurable: true,
+    value: { writeText: async (value: string) => { written.push(value) } } })
+  await openDevices()
+  await type(field<HTMLInputElement>(zh.devicesAddId), 'laptop')
+  await type(field<HTMLInputElement>(zh.devicesAddName), 'L')
+  await click(zh.devicesAddSubmit)
+  // The token-only button copies exactly the token, so it can be pasted into one field.
+  await click(all('[data-copy-token]')[0]!)
+  expect(written).toEqual(['a'.repeat(64)])
+  // The config button copies url/deviceId/token as one block, in the shape a device's config takes.
+  await click(all('[data-copy-config]')[0]!)
+  expect(written[1]).toBe(`url: ws://127.0.0.1:8790\ndeviceId: laptop\ntoken: ${'a'.repeat(64)}`)
+  expect(text()).toContain(zh.copied)
+})
+
+it('says the copy failed rather than going silent when the page is not a secure context', async () => {
+  // http:// on a non-loopback host has no navigator.clipboard at all, which is exactly the port-forwarding case.
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
+  await openDevices()
+  await type(field<HTMLInputElement>(zh.devicesAddId), 'laptop')
+  await type(field<HTMLInputElement>(zh.devicesAddName), 'L')
+  await click(zh.devicesAddSubmit)
+  await click(all('[data-copy-token]')[0]!)
+  expect(text()).toContain(zh.copyFailed)
+})
